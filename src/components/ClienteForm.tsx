@@ -1,11 +1,19 @@
 import { useState } from 'react'
 
+type FormType = {
+  nome: string
+  email: string
+  telefone: string
+  cpf: string
+  conselho?: string
+}
+
 type Props = {
-  onSubmit: (form: any) => Promise<void>
+  onSubmit: (form: FormType) => Promise<void>
 }
 
 export default function ClienteForm({ onSubmit }: Props) {
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<FormType>({
     nome: '',
     email: '',
     telefone: '',

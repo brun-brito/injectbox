@@ -8,6 +8,14 @@ import epikLogo from '@/assets/fotos/epik-vetor.svg'
 import fotoIA from '@/assets/fotos/foto-IA.jpg'
 import { useRef } from 'react'
 
+type FormType = {
+  nome: string
+  email: string
+  telefone: string
+  cpf: string
+  conselho?: string
+}
+
 type Props = {
   cliente: string
   produto: string
@@ -16,12 +24,16 @@ type Props = {
 export default function LandingPage({ cliente, produto }: Props) {
   const formRef = useRef<HTMLDivElement>(null)
 
-  const handleCadastro = async (form: any) => {
+  const handleCadastro = async (form: FormType) => {
     try {
       await cadastrarCliente({ ...form, empresa: cliente, produto })
       alert('Cadastro realizado com sucesso!')
-    } catch (err: any) {
-      alert(err.message)
+    } catch (err) {
+      if (err instanceof Error) {
+        alert(err.message)
+      } else {
+        alert('Erro desconhecido')
+      }
     }
   }
 
