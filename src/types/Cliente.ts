@@ -3,6 +3,8 @@ export type Cliente = {
     email: string
     telefone: string
     cpf: string
-    conselho?: string
+    especialidade: string
+    uf: string
+    conselho: string
     adimplente?: boolean
 }

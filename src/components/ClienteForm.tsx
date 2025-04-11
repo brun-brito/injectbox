@@ -6,17 +6,10 @@ import {
   validarCPF
 } from '@/validations/cliente'
 import { useRouter } from 'next/router'
-
-type FormType = {
-  nome: string
-  email: string
-  telefone: string
-  cpf: string
-  conselho?: string
-}
+import { Cliente } from '@/types/Cliente'
 
 type Props = {
-  onSubmit: (form: FormType) => Promise<void>
+  onSubmit: (form: Cliente) => Promise<void>
 }
 
 const placeholders: Record<string, string> = {
@@ -24,21 +17,25 @@ const placeholders: Record<string, string> = {
   email: 'ex: jose@exemplo.com',
   telefone: 'ex: 86982731234',
   cpf: 'ex: 12345678900',
-  conselho: 'ex: 107532-MG',
+  especialidade: 'ex: Odontologia',
+  uf: '',
+  conselho: 'ex: 107532',
 }
 
 export default function ClienteForm({ onSubmit }: Props) {
   const router = useRouter()
   const cliente = router.query.cliente as string
-  const [form, setForm] = useState<FormType>({
+  const [form, setForm] = useState<Cliente>({
     nome: '',
     email: '',
     telefone: '',
     cpf: '',
+    especialidade: '',
+    uf: '',
     conselho: '',
   })
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value })
   }
 
@@ -104,12 +101,14 @@ export default function ClienteForm({ onSubmit }: Props) {
     email: 'Email',
     telefone: 'Telefone com DDD',
     cpf: 'CPF',
+    especialidade: 'Especialidade',
+    uf: 'UF',
     conselho: 'Número do conselho',
   }
 
   return (
     <form onSubmit={handleSubmit} className="w-full max-w-md space-y-4">
-      {['nome', 'email', 'telefone', 'cpf', 'conselho'].map((campo) => (
+      {['nome', 'email', 'telefone', 'cpf', 'especialidade', 'conselho'].map((campo) => (
         <div key={campo}>
           <label htmlFor={campo} className="font-semibold text-left block text-sm font-medium text-white mb-1">
             {labels[campo]}
@@ -117,7 +116,7 @@ export default function ClienteForm({ onSubmit }: Props) {
           <input
             id={campo}
             name={campo}
-            value={form[campo as keyof typeof form]}
+            value={String(form[campo as keyof typeof form] || '')}
             onChange={handleChange}
             onBlur={handleBlur}
             required
@@ -130,6 +129,28 @@ export default function ClienteForm({ onSubmit }: Props) {
           )}
         </div>
       ))}
+      <div>
+        <label htmlFor="uf" className="font-semibold text-left block text-sm font-medium text-white mb-1">
+          UF
+        </label>
+        <select
+          id="uf"
+          name="uf"
+          value={form.uf}
+          onChange={handleChange}
+          required
+          className="w-full p-2 border rounded border-gray-300"
+        >
+          <option value="" disabled>Selecione um estado</option>
+          {[
+            'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA',
+            'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN',
+            'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'
+          ].map((uf) => (
+            <option key={uf} value={uf}>{uf}</option>
+          ))}
+        </select>
+      </div>
       <button
         type="submit"
         disabled={isLoading}

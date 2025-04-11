@@ -5,9 +5,9 @@ import { collection, addDoc } from 'firebase/firestore'
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ erro: 'Método não permitido' })
 
-  const { empresa, produto, nome, email, telefone, cpf, conselho } = req.body
+  const { empresa, produto, nome, email, telefone, cpf, conselho, especialidade, uf } = req.body
 
-  if (!empresa || !produto || !nome || !email || !telefone || !cpf || !conselho) {
+  if (!empresa || !produto || !nome || !email || !telefone || !cpf || !conselho || !especialidade || !uf) {
     return res.status(400).json({ erro: 'Campos obrigatórios não informados' })
   }
 
@@ -20,6 +20,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       telefone: telefoneFormatado,
       cpf,
       conselho,
+      especialidade,
+      uf,
       criado_em: new Date(),
       adimplente: true
     })

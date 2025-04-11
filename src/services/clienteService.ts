@@ -1,10 +1,6 @@
-// apenas chama o endpoint correto
-type ClienteData = {
-  nome: string
-  email: string
-  telefone: string
-  cpf: string
-  conselho?: string
+import { Cliente } from '@/types/Cliente'
+
+type ClienteData = Cliente & {
   empresa: string
   produto: string
 }

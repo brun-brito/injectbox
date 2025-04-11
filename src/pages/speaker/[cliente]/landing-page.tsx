@@ -9,14 +9,7 @@ import fotoIA from '@/assets/fotos/epik/foto-IA.jpg'
 import { useRef } from 'react'
 import { useState } from 'react'
 import Head from 'next/head'
-
-type FormType = {
-  nome: string
-  email: string
-  telefone: string
-  cpf: string
-  conselho?: string
-}
+import { Cliente } from '@/types/Cliente'
 
 type Props = {
   cliente: string
@@ -27,7 +20,7 @@ export default function LandingPage({ cliente, produto }: Props) {
   const formRef = useRef<HTMLDivElement>(null)
   const [mostrarFormulario, setMostrarFormulario] = useState(false)
 
-  const handleCadastro = async (form: FormType) => {
+  const handleCadastro = async (form: Cliente) => {
     try {
       await cadastrarCliente({ 
         ...form, 
@@ -56,7 +49,7 @@ export default function LandingPage({ cliente, produto }: Props) {
   return (
     <>
     <Head>
-      <title>Speaker - {cliente}</title>
+      <title>{`Speaker - ${cliente}`}</title>
       <link rel="icon" href={`/${cliente || 'favicon'}.ico`} />
     </Head>
     <main className="min-h-screen bg-gradient-to-b from-[#01202e] via-[#174359] to-[#01202e] text-white px-4 py-8 flex items-center justify-center">
