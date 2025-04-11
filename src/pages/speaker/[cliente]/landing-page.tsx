@@ -4,9 +4,11 @@ import { doc, getDoc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { cadastrarCliente } from '@/services/clienteService'
 import ClienteForm from '@/components/ClienteForm'
-import epikLogo from '@/assets/fotos/epik-vetor.svg'
-import fotoIA from '@/assets/fotos/foto-IA.jpg'
+import epikLogo from '@/assets/fotos/epik/epik-vetor.svg'
+import fotoIA from '@/assets/fotos/epik/foto-IA.jpg'
 import { useRef } from 'react'
+import { useState } from 'react'
+import Head from 'next/head'
 
 type FormType = {
   nome: string
@@ -23,10 +25,15 @@ type Props = {
 
 export default function LandingPage({ cliente, produto }: Props) {
   const formRef = useRef<HTMLDivElement>(null)
+  const [mostrarFormulario, setMostrarFormulario] = useState(false)
 
   const handleCadastro = async (form: FormType) => {
     try {
-      await cadastrarCliente({ ...form, empresa: cliente, produto })
+      await cadastrarCliente({ 
+        ...form, 
+        empresa: cliente,
+        produto
+      })
       alert('Cadastro realizado com sucesso!')
     } catch (err) {
       if (err instanceof Error) {
@@ -38,43 +45,80 @@ export default function LandingPage({ cliente, produto }: Props) {
   }
 
   const scrollToForm = () => {
-    formRef.current?.scrollIntoView({ behavior: 'smooth' })
+    setMostrarFormulario((prev) => !prev)
+    if (!mostrarFormulario) {
+      setTimeout(() => {
+        formRef.current?.scrollIntoView({ behavior: 'smooth' })
+      }, 100)
+    }
   }
 
   return (
-    <main className="min-h-screen bg-[#041B2D] text-white flex flex-col items-center px-4 py-8">
-      {/* Logo */}
-      <div className="w-full flex justify-center mb-4">
-        <Image src={epikLogo} alt="Logo Epik" width={260} height={80} />
-      </div>
+    <>
+    <Head>
+      <title>Speaker - {cliente}</title>
+      <link rel="icon" href={`/${cliente || 'favicon'}.ico`} />
+    </Head>
+    <main className="min-h-screen bg-gradient-to-b from-[#01202e] via-[#174359] to-[#01202e] text-white px-4 py-8 flex items-center justify-center">
+      <section className='flex flex-col md:flex-row items-start justify-between w-full max-w-7xl gap-4'>
+        <div className="flex flex-col items-start w-full max-w-xl mb-4 ml-5">
+          <div className="mb-9">
+            <Image src={epikLogo} alt="Logo Epik" width={290} height={80} />
+          </div>
+          <div className="w-full max-w-xs md:max-w-md relative aspect-[1] rounded-lg overflow-hidden shadow-lg border-l-10 border-r-10 border-[#d9ff3c]">
+            <Image src={fotoIA} alt="Foto IA" fill className="object-cover" />
+          </div>
+        </div>
 
-      {/* Imagem principal */}
-      <div className="w-full max-w-4xl relative aspect-[16/9] rounded-lg overflow-hidden mb-6 shadow-lg">
-        <Image src={fotoIA} alt="Foto IA" layout="fill" objectFit="cover" />
-      </div>
+        <div className="mt-0 md:mt-30 flex-1 min-h-[500px] flex flex-col justify-start w-full max-w-2xl">
+          {/* Título e descrição */}
+          <div className="text-center max-w-2xl m-4">
+            <div className="text-left dela-gothic-one-regular leading-tight">
+              <h1 className="text-5xl md:text-6xl text-transparent" style={{ WebkitTextStroke: '1px white' }}>
+                SPEAKER
+              </h1>
+              <h1 className="text-5xl md:text-7xl text-[#c3916e]">EPIK</h1>
+              <h1 className="text-5xl md:text-5xl text-transparent" style={{ WebkitTextStroke: '1px white' }}>24 HORAS</h1>
+            </div>
+            <p className="mt-4 text-lg text-gray-200 uppercase">
+              Um assessor para tirar suas dúvidas, a qualquer hora, sobre procedimentos, produtos,
+              protocolos, composição e muito mais.
+            </p>
+          </div>
 
-      {/* Título e descrição */}
-      <div className="text-center max-w-2xl mb-6">
-        <h1 className="text-4xl md:text-5xl font-bold">SPEAKER EPIK 24 HORAS</h1>
-        <p className="mt-4 text-lg text-gray-200">
-          Um assessor para tirar suas dúvidas, a qualquer hora, sobre procedimentos, produtos,
-          protocolos, composição e muito mais.
-        </p>
-      </div>
+          {/* div cadastro */}
+          <div className="text-center max-w-2xl m-4">
+            <div>
+              <h2 className="text-[#d9ff3c] text-3xl md:text-4xl font-bold">Faça seu cadastro e utilize por <br></br>30 DIAS GRÁTIS!</h2>
+            </div>
 
-      {/* Botão principal */}
-      <button
-        onClick={scrollToForm}
-        className="bg-lime-400 text-black px-6 py-3 text-lg font-semibold rounded shadow hover:bg-lime-500 transition"
-      >
-        FAÇA SEU CADASTRO
-      </button>
+            {/* Botão principal */}
+            <button
+              onClick={scrollToForm}
+              className="cursor-pointer mt-4 bg-lime-400 text-black px-6 py-3 text-lg font-semibold rounded shadow hover:scale-105 hover:bg-lime-500 transition-transform duration-300 ease-out"
+              >
+              {mostrarFormulario ? 'FECHAR FORMULÁRIO' : 'CLIQUE AQUI!'}
+            </button>
 
-      {/* Formulário */}
-      <div ref={formRef} className="mt-16 w-full max-w-xl">
-        <ClienteForm onSubmit={handleCadastro} />
-      </div>
+            {/* Formulário */}
+            {mostrarFormulario && (
+              <div
+              ref={formRef}
+              className={`
+                mt-6 w-full max-w-xl justify-items-center
+                transition-all duration-700 ease-in-out
+                transform
+                ${mostrarFormulario ? 'opacity-100 scale-100 translate-y-0 blur-0' : 'opacity-0 scale-95 translate-y-6 blur-sm'}
+                `}
+                >
+                <ClienteForm onSubmit={handleCadastro} />
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
     </main>
+    </>
   )
 }
 

@@ -7,18 +7,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { empresa, produto, nome, email, telefone, cpf, conselho } = req.body
 
-  if (!empresa || !produto || !nome || !email) {
+  if (!empresa || !produto || !nome || !email || !telefone || !cpf || !conselho) {
     return res.status(400).json({ erro: 'Campos obrigatórios não informados' })
   }
+
+  const telefoneFormatado = "55" + String(telefone).replace(/\D/g, '')
 
   try {
     const ref = await addDoc(collection(db, 'empresas', empresa, 'produtos', produto, 'clientes'), {
       nome,
       email,
-      telefone,
+      telefone: telefoneFormatado,
       cpf,
       conselho,
       criado_em: new Date(),
+      adimplente: true
     })
 
     return res.status(201).json({ mensagem: 'Cliente cadastrado com sucesso', id: ref.id })
