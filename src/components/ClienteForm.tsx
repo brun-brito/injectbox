@@ -44,7 +44,8 @@ export default function ClienteForm({ onSubmit }: Props) {
 
   const [erros, setErros] = useState<Record<string, string>>({})
   const [tocados, setTocados] = useState<Record<string, boolean>>({})
-
+  const [isLoading, setIsLoading] = useState(false)
+  
   const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
     const { name, value } = e.target
     setTocados({ ...tocados, [name]: true })
@@ -88,9 +89,14 @@ export default function ClienteForm({ onSubmit }: Props) {
       return
     }
   
-    setErros({})
-    await onSubmit(form)
-    router.push(`/speaker/${cliente}/success`)
+    try {
+      setIsLoading(true)
+      setErros({})
+      await onSubmit(form)
+      router.push(`/speaker/${cliente}/success`)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const labels: Record<string, string> = {
@@ -124,8 +130,13 @@ export default function ClienteForm({ onSubmit }: Props) {
           )}
         </div>
       ))}
-      <button type="submit" className="cursor-pointer w-full p-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-        Cadastrar
+      <button
+        type="submit"
+        disabled={isLoading}
+        className={`cursor-pointer w-full p-2 text-white rounded 
+          ${isLoading ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}
+      >
+        {isLoading ? 'Enviando...' : 'Cadastrar'}
       </button>
     </form>
   )
