@@ -24,7 +24,7 @@ export default function handler(
   let textoLimpo = texto.replace(/[\[({【〈《〔［].*?†.*?[\])}】〉》〕］]/g, '')
 
   // Remove múltiplos espaços
-  textoLimpo = textoLimpo.replace(/\s+/g, ' ').trim()
+  textoLimpo = textoLimpo.replace(/[ \t]+/g, ' ').trim()
 
   return res.status(200).json({ texto_limpo: textoLimpo })
 }
