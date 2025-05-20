@@ -13,7 +13,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const colecaoRef = collection(db, 'empresas', String(empresa), 'produtos', String(produto), 'clientes')
-  const telefoneOriginal = String(telefone).replace(/\D/g, '')
+  
+  let telefoneLimpo = String(telefone);
+  if (telefoneLimpo.startsWith('+')) {
+    telefoneLimpo = telefoneLimpo.slice(1); // remove o +
+  }
+  const telefoneOriginal = telefoneLimpo.replace(/\D/g, '')
 
   let numeroBase = telefoneOriginal
   if (telefoneOriginal.startsWith('55')) {
