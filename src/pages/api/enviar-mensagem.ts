@@ -8,7 +8,7 @@ const CLIENT_TOKEN = 'F6ed0a48bf0af4faa8f05c8d632096a9aS';
 type ResultadoEnvio = {
   phone: string;
   status: 'enviado' | 'erro';
-  response?: any;
+  response?: unknown;
   error?: string;
 };
 
@@ -65,14 +65,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           );
 
           resultados.push({ phone, status: 'enviado', response: response.data });
-        } catch (error: any) {
-          resultados.push({ phone, status: 'erro', error: error.message });
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error('Erro desconhecido');
+          resultados.push({ phone, status: 'erro', error: err.message });
         }
       }
     }
 
     return res.status(200).json({ enviados: resultados.length, detalhes: resultados });
-  } catch (error: any) {
-    return res.status(500).json({ error: 'Erro geral ao enviar mensagens', detalhe: error.message });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error('Erro desconhecido');
+    return res.status(500).json({ error: 'Erro geral ao enviar mensagens', detalhe: err.message });
   }
 }

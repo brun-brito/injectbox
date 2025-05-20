@@ -19,7 +19,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .get();
 
     return res.status(200).json({ totalClientes: snapshot.size });
-  } catch (error: any) {
-    return res.status(500).json({ error: 'Erro ao contar clientes', detalhe: error.message });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error('Erro desconhecido');
+    return res.status(500).json({ error: 'Erro ao contar clientes', detalhe: err.message });
   }
 }
