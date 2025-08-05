@@ -1,6 +1,6 @@
 // Novo endpoint simples: contar-clientes.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { db } from '../../lib/firebaseAdmin';
+import { dbAdmin } from '@/lib/firebaseAdmin';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -14,7 +14,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const snapshot = await db
+    const snapshot = await dbAdmin
       .collection(`empresas/${empresa}/produtos/${produto}/clientes`)
       .get();
 

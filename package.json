@@ -9,18 +9,26 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@chakra-ui/table": "^2.1.0",
     "axios": "^1.8.4",
     "firebase": "^11.6.0",
     "firebase-admin": "^13.2.0",
+    "formidable": "^3.5.4",
     "next": "15.2.5",
-    "openai": "^4.94.0",
+    "openai": "^4.104.0",
     "react": "^19.0.0",
+    "react-contenteditable": "^3.3.7",
     "react-dom": "^19.0.0",
-    "react-icons": "^5.5.0"
+    "react-icons": "^5.5.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "synonyms": "^1.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
+    "@types/formidable": "^3.4.5",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

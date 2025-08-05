@@ -1,7 +1,6 @@
 import Image from 'next/image'
 import { GetServerSideProps } from 'next'
-import { doc, getDoc } from 'firebase/firestore'
-import { db } from '@/lib/firebase'
+import { dbAdmin } from '@/lib/firebaseAdmin'
 import { cadastrarCliente } from '@/services/clienteService'
 import ClienteForm from '@/components/ClienteForm'
 import epikLogo from '@/assets/fotos/epik/epik-vetor.svg'
@@ -119,10 +118,15 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
   const { cliente } = context.params as { cliente: string }
   const produto = 'speaker'
 
-  const ref = doc(db, 'empresas', cliente, 'produtos', produto)
-  const snapshot = await getDoc(ref)
+  const ref = dbAdmin
+    .collection('empresas')
+    .doc(cliente)
+    .collection('produtos')
+    .doc(produto);
 
-  if (!snapshot.exists()) {
+  const snapshot = await ref.get();
+
+  if (!snapshot.exists) {
     return { notFound: true }
   }
 

@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { db } from '../../lib/firebaseAdmin';
+import { dbAdmin } from '../../lib/firebaseAdmin';
 import axios from 'axios';
 
 const API_URL = 'https://api.z-api.io/instances/3DB416777CAE50403F51DA9FF2413145/token/4EF4CFFA839C9181472EABE8/send-button-actions';
@@ -24,7 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const snapshot = await db
+    const snapshot = await dbAdmin
       .collection(`empresas/${empresa}/produtos/${produto}/clientes`)
       .get();
 
@@ -42,16 +42,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             API_URL,
             {
               phone,
-              message: `Boa tarde, ${primeiroNome}!\n\n🥰 Você sabia que o *Radiesse tem dupla função*? 🤔\n\n*_Bioestímulo de colágeno e Preenchimento_*\n\n💉 O Radiesse é um dos bioestimuladores mais procurados pelos profissionais de harmonização por estar há muito tempo no mercado e apresentar resultados consistentes e de rápida percepção.`,
+              message: `Boa tarde, ${primeiroNome}! 😁👋\n\n😍 Conheça o *Saypha Rich*, skinbooster da Croma Pharma com zero BDDE. 🥰\n\n💉Usado para hidratação e preenchimento da pele, com foco em combate aos sinais de envelhecimento e melhora da hidratação, tônus e elasticidade cutânea\n\n💉 O *Saypha Rich* tem se transformado no queridinho dos procedimentos que visam a boa administração da pele.`,
               buttonList: {
               buttons: [
                 {
                   id: "1",
-                  label: "Já uso o Radiesse!"
+                  label: "Já conheço o Saypha Rich!"
                 },
                 {
                   id: "2",
-                  label: "Nunca utilizei o Radiesse. Quero saber mais."
+                  label: "Nunca utilizei o Saypha Rich."
                 }
               ]
             }
