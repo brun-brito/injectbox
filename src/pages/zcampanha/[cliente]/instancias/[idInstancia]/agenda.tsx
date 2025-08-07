@@ -1,7 +1,8 @@
 import { useRouter } from 'next/router';
 import { useEffect, useState, useMemo } from 'react';
 import * as Icons from 'react-icons/fi';
-import ImportarContatos from '@/components/ImportarContatos';
+import ImportarContatos from '@/components/zcampanha/ImportarContatos';
+import { withZCampanhaAuth } from '@/components/zcampanha/withZCampanhaAuth';
 
 type Contato = { id: string; nome: string; numero: string };
 
@@ -13,6 +14,7 @@ const AgendaPage = () => {
   const [erro, setErro] = useState('');
   const [nome, setNome] = useState('');
   const [numero, setNumero] = useState('');
+  const [instanceData, setInstanceData] = useState<{nome: string; numero: string} | null>(null);
   
   // Estados para edição inline
   const [editandoId, setEditandoId] = useState<string | null>(null);
@@ -45,7 +47,24 @@ const AgendaPage = () => {
   };
 
   useEffect(() => {
-    if (cliente && idInstancia) fetchContatos();
+    if (cliente && idInstancia) {
+      fetchContatos();
+      
+      // Buscar dados da instância
+      fetch(`/api/zcampanha/${cliente}/instancias`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.instancias) {
+            const instance = data.instancias.find((inst: any) => inst.idInstancia === idInstancia);
+            if (instance) {
+              setInstanceData({ nome: instance.nome, numero: instance.numero });
+            }
+          }
+        })
+        .catch(error => {
+          console.error('Erro ao buscar dados da instância:', error);
+        });
+    }
   }, [cliente, idInstancia]);
 
   // Filtrar contatos baseado na busca
@@ -172,7 +191,9 @@ const AgendaPage = () => {
       
       <div className="agenda-container">
         <div className="header-container">
-          <h2>Agenda da Instância</h2>
+          <h2>
+            Agenda de {instanceData ? instanceData.nome : idInstancia}
+          </h2>
           
           <div className="header-actions">
             {!mostrarFormulario && (
@@ -1038,4 +1059,4 @@ const AgendaPage = () => {
   );
 };
 
-export default AgendaPage;
+export default withZCampanhaAuth(AgendaPage);

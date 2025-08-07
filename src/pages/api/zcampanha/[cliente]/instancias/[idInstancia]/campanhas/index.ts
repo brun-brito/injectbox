@@ -9,10 +9,7 @@ export type TipoMensagem = 'texto' | 'imagem' | 'botoes';
 
 export type ButtonAction = {
   id: string;
-  type: 'CALL' | 'URL' | 'REPLY';
   label: string;
-  phone?: string;
-  url?: string;
 };
 
 export type ConteudoMensagem = {
@@ -22,6 +19,7 @@ export type ConteudoMensagem = {
   legenda?: string;
   botoes?: ButtonAction[];
   variacoes?: string[];
+  variacoesLegenda?: string[];
 };
 
 export type ContatoSelecionado = {
@@ -286,6 +284,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           erros: 0,
           percentualSucesso: 0
         };
+      }
+
+      // Validação básica do conteúdo da mensagem
+      if (!dadosAtualizacao.conteudo || !dadosAtualizacao.conteudo.tipo) {
+        return res.status(400).json({ error: 'Conteúdo da mensagem é obrigatório' });
+      }
+
+      // Validar conteúdo baseado no tipo
+      switch (dadosAtualizacao.conteudo.tipo) {
+        case 'texto':
+          if (!dadosAtualizacao.conteudo.texto?.trim()) {
+            return res.status(400).json({ error: 'Texto da mensagem é obrigatório' });
+          }
+          break;
+        
+        case 'imagem':
+          if (!dadosAtualizacao.conteudo.imagem) {
+            return res.status(400).json({ error: 'Imagem é obrigatória' });
+          }
+          break;
+        
+        case 'botoes':
+          if (!dadosAtualizacao.conteudo.texto?.trim()) {
+            return res.status(400).json({ error: 'Texto da mensagem com botões é obrigatório' });
+          }
+          if (!dadosAtualizacao.conteudo.botoes || dadosAtualizacao.conteudo.botoes.length === 0) {
+            return res.status(400).json({ error: 'Pelo menos um botão é obrigatório' });
+          }
+          // Validar cada botão
+          for (const botao of dadosAtualizacao.conteudo.botoes) {
+            if (!botao.label?.trim()) {
+              return res.status(400).json({ error: 'Todos os botões devem ter um texto' });
+            }
+          }
+          break;
+        
+        default:
+          return res.status(400).json({ error: `Tipo de mensagem não suportado: ${dadosAtualizacao.conteudo.tipo}` });
       }
 
       await docRef.update(dadosAtualizacao);

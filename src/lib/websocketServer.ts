@@ -17,7 +17,7 @@ interface NextApiResponseWithSocket extends NextApiRequest {
 
 export type ProgressoCampanha = {
   campanhaId: string;
-  status: 'iniciando' | 'criando-variacoes' | 'processando' | 'finalizando' | 'concluida' | 'erro';
+  status: 'iniciando' | 'criando-variacoes' | 'processando' | 'finalizando' | 'concluida' | 'erro' | 'pausada' | 'cancelada';
   loteAtual: number;
   totalLotes: number;
   contatosProcessados: number;

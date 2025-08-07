@@ -2,6 +2,7 @@ import { useRouter } from 'next/router';
 import { useEffect, useState, ChangeEvent, useRef } from 'react';
 import { FiPaperclip, FiX, FiPlus, FiPhone, FiExternalLink, FiMessageSquare } from 'react-icons/fi';
 import { MdPhotoLibrary, MdSmartButton } from 'react-icons/md';
+import { withZCampanhaAuth } from '@/components/zcampanha/withZCampanhaAuth';
 
 type Mensagem = {
   de: 'usuario' | 'contato';
@@ -16,10 +17,7 @@ type Contato = { id: string; nome: string; numero: string };
 
 type ButtonAction = {
   id: string;
-  type: 'CALL' | 'URL' | 'REPLY';
   label: string;
-  phone?: string;
-  url?: string;
 };
 
 const mensagemInicial: Mensagem = {
@@ -165,9 +163,14 @@ const SimuladorPage = () => {
       .replace(/\$telefone/gi, contato.numero);
   };
 
+  // Função para processar quebras de linha
+  const processarQuebrasLinha = (texto: string): string => {
+    return texto.replace(/\n/g, '\n');
+  };
+
   // Função para inserir variável no input
   const inserirVariavel = (variavel: string) => {
-    const textarea = document.querySelector('.text-input') as HTMLInputElement;
+    const textarea = document.querySelector('.text-input') as HTMLTextAreaElement;
     if (textarea) {
       const start = textarea.selectionStart || 0;
       const end = textarea.selectionEnd || 0;
@@ -194,13 +197,8 @@ const SimuladorPage = () => {
 
   // Função para adicionar botão de ação
   const adicionarBotao = () => {
-    if (botoesAcao.length >= 3) {
-      setFeedback('Máximo de 3 botões permitidos.');
-      return;
-    }
     const novoBotao: ButtonAction = {
       id: (botoesAcao.length + 1).toString(),
-      type: 'REPLY',
       label: ''
     };
     setBotoesAcao([...botoesAcao, novoBotao]);
@@ -230,14 +228,6 @@ const SimuladorPage = () => {
         setFeedback('Todos os botões devem ter um texto.');
         return false;
       }
-      if (botao.type === 'CALL' && !botao.phone?.trim()) {
-        setFeedback('Botões de ligação devem ter um número de telefone.');
-        return false;
-      }
-      if (botao.type === 'URL' && !botao.url?.trim()) {
-        setFeedback('Botões de link devem ter uma URL.');
-        return false;
-      }
     }
     return true;
   };
@@ -254,15 +244,19 @@ const SimuladorPage = () => {
     }
     if (!validarBotoes()) return;
 
-    const textoProcessado = contatoSelecionado ? processarVariaveis(input, contatoSelecionado) : input;
+    let textoProcessado = contatoSelecionado ? processarVariaveis(input, contatoSelecionado) : input;
+    textoProcessado = processarQuebrasLinha(textoProcessado);
     
     setMensagens(prev => [...prev, { 
       de: 'usuario', 
       texto: textoProcessado,
-      botoes: [...botoesAcao]
+      botoes: [...botoesAcao],
+      imagem: imagemSelecionada || undefined
     }]);
     setInput('');
     setBotoesAcao([]);
+    setImagemSelecionada('');
+    setNomeArquivo('');
     setFeedback(null);
   };
 
@@ -286,21 +280,33 @@ const SimuladorPage = () => {
       return;
     }
 
-    const mensagemProcessada = processarVariaveis(input, contatoSelecionado);
+    let mensagemProcessada = processarVariaveis(input, contatoSelecionado);
+    mensagemProcessada = processarQuebrasLinha(mensagemProcessada);
 
     setEnviando(true);
     try {
-      const response = await fetch(`https://api.z-api.io/instances/${idInstancia}/token/${tokenInstancia}/send-button-actions`, {
+      const payload: any = {
+        phone: contatoSelecionado.numero,
+        message: mensagemProcessada,
+        buttonList: {
+          buttons: botoesAcao.map(botao => ({
+            label: botao.label
+          }))
+        }
+      };
+
+      // Adicionar imagem se selecionada
+      if (imagemSelecionada) {
+        payload.buttonList.image = imagemSelecionada;
+      }
+
+      const response = await fetch(`https://api.z-api.io/instances/${idInstancia}/token/${tokenInstancia}/send-button-list`, {
         method: 'POST',
         headers: {
           'client-token': clientToken,
           'content-type': 'application/json'
         },
-        body: JSON.stringify({
-          phone: contatoSelecionado.numero,
-          message: mensagemProcessada,
-          buttonActions: botoesAcao
-        })
+        body: JSON.stringify(payload)
       });
 
       const data = await response.json();
@@ -311,10 +317,13 @@ const SimuladorPage = () => {
           de: 'usuario', 
           texto: mensagemProcessada, 
           botoes: [...botoesAcao],
+          imagem: imagemSelecionada || undefined,
           real: true 
         }]);
         setInput('');
         setBotoesAcao([]);
+        setImagemSelecionada('');
+        setNomeArquivo('');
       } else {
         setFeedback(`Erro: ${data?.error || 'Falha ao enviar mensagem com botões'}`);
       }
@@ -329,8 +338,9 @@ const SimuladorPage = () => {
   const enviarTextoSimulacao = () => {
     if (!input.trim()) return;
     
-    // Processar variáveis mesmo na simulação
-    const textoProcessado = contatoSelecionado ? processarVariaveis(input, contatoSelecionado) : input;
+    // Processar variáveis e quebras de linha mesmo na simulação
+    let textoProcessado = contatoSelecionado ? processarVariaveis(input, contatoSelecionado) : input;
+    textoProcessado = processarQuebrasLinha(textoProcessado);
     
     setMensagens(prev => [...prev, { de: 'usuario', texto: textoProcessado }]);
     setInput('');
@@ -352,8 +362,9 @@ const SimuladorPage = () => {
       return;
     }
 
-    // Processar variáveis antes de enviar
-    const mensagemProcessada = processarVariaveis(input, contatoSelecionado);
+    // Processar variáveis e quebras de linha antes de enviar
+    let mensagemProcessada = processarVariaveis(input, contatoSelecionado);
+    mensagemProcessada = processarQuebrasLinha(mensagemProcessada);
 
     setEnviando(true);
     try {
@@ -393,10 +404,14 @@ const SimuladorPage = () => {
       return;
     }
 
-    // Processar variáveis na legenda mesmo na simulação
-    const legendaProcessada = input.trim() && contatoSelecionado 
-      ? processarVariaveis(input, contatoSelecionado) 
-      : (input.trim() || undefined);
+    // Processar variáveis e quebras de linha na legenda mesmo na simulação
+    let legendaProcessada: string;
+    if (input.trim() && contatoSelecionado) {
+      legendaProcessada = processarVariaveis(input, contatoSelecionado);
+      legendaProcessada = processarQuebrasLinha(legendaProcessada);
+    } else if (input.trim()) {
+      legendaProcessada = processarQuebrasLinha(input);
+    }
     
     setMensagens(prev => [...prev, { 
       de: 'usuario', 
@@ -427,8 +442,12 @@ const SimuladorPage = () => {
 
     setEnviando(true);
     try {
-      // Processar variáveis na legenda antes de enviar
-      const legendaProcessada = input.trim() ? processarVariaveis(input, contatoSelecionado) : undefined;
+      // Processar variáveis e quebras de linha na legenda antes de enviar
+      let legendaProcessada: string | undefined = undefined;
+      if (input.trim()) {
+        legendaProcessada = processarVariaveis(input, contatoSelecionado);
+        legendaProcessada = processarQuebrasLinha(legendaProcessada);
+      }
       
       const response = await fetch(`https://api.z-api.io/instances/${idInstancia}/token/${tokenInstancia}/send-image`, {
         method: 'POST',
@@ -522,29 +541,6 @@ const SimuladorPage = () => {
         <div className="tela">
           {mensagens.map((msg, i) => (
             <div key={i} style={{ marginBottom: 8 }}>
-              {msg.texto && (
-                <div className={
-                  msg.de === 'usuario' 
-                    ? (msg.real ? 'msg-usuario-real' : 'msg-usuario') 
-                    : 'msg-contato'
-                }>
-                  {msg.texto}
-                  {msg.botoes && msg.botoes.length > 0 && (
-                    <div className="botoes-container">
-                      {msg.botoes.map((botao, idx) => (
-                        <div key={idx} className="botao-preview">
-                          <div className="botao-icon">
-                            {botao.type === 'CALL' && <FiPhone size={14} />}
-                            {botao.type === 'URL' && <FiExternalLink size={14} />}
-                            {botao.type === 'REPLY' && <FiMessageSquare size={14} />}
-                          </div>
-                          <span>{botao.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
               {msg.imagem && (
                 <div className={
                   msg.de === 'usuario' 
@@ -569,9 +565,31 @@ const SimuladorPage = () => {
                       marginTop: 4,
                       padding: '4px 8px',
                       background: 'rgba(0,0,0,0.3)',
-                      borderRadius: 4
+                      borderRadius: 4,
+                      whiteSpace: 'pre-wrap'
                     }}>
                       {msg.legenda}
+                    </div>
+                  )}
+                </div>
+              )}
+              {msg.texto && (
+                <div className={
+                  msg.de === 'usuario' 
+                    ? (msg.real ? 'msg-usuario-real' : 'msg-usuario') 
+                    : 'msg-contato'
+                }>
+                  <div style={{ whiteSpace: 'pre-wrap' }}>{msg.texto}</div>
+                  {msg.botoes && msg.botoes.length > 0 && (
+                    <div className="botoes-container">
+                      {msg.botoes.map((botao, idx) => (
+                        <div key={idx} className="botao-preview">
+                          <div className="botao-icon">
+                            <FiMessageSquare size={14} />
+                          </div>
+                          <span>{botao.label}</span>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -605,14 +623,14 @@ const SimuladorPage = () => {
         {/* Preview de botões quando estão sendo criados */}
         {botoesAcao.length > 0 && (
           <div className="preview-botoes">
-            <div className="preview-titulo">Botões que serão enviados:</div>
+            <div className="preview-titulo">
+              Botões que serão enviados{imagemSelecionada ? ' (com imagem)' : ''}:
+            </div>
             <div className="botoes-preview-list">
               {botoesAcao.map((botao, idx) => (
                 <div key={idx} className="botao-preview-item">
                   <div className="botao-icon">
-                    {botao.type === 'CALL' && <FiPhone size={12} />}
-                    {botao.type === 'URL' && <FiExternalLink size={12} />}
-                    {botao.type === 'REPLY' && <FiMessageSquare size={12} />}
+                    <FiMessageSquare size={12} />
                   </div>
                   <span>{botao.label || 'Sem texto'}</span>
                 </div>
@@ -701,13 +719,21 @@ const SimuladorPage = () => {
           </div>
 
           {/* Input de texto */}
-          <input
+          <textarea
             className="text-input"
             value={input}
             onChange={e => setInput(e.target.value)}
-            placeholder={imagemSelecionada ? "Legenda (opcional)..." : "Digite sua mensagem..."}
+            placeholder={
+              botoesAcao.length > 0 
+                ? "Texto da mensagem com botões..." 
+                : imagemSelecionada 
+                  ? "Legenda (opcional)..." 
+                  : "Digite sua mensagem..."
+            }
+            rows={1}
             onKeyDown={e => {
-              if (e.key === 'Enter' && !enviando) {
+              if (e.key === 'Enter' && !e.shiftKey && !enviando) {
+                e.preventDefault();
                 if (botoesAcao.length > 0) {
                   contatoSelecionado ? enviarTextoComBotoesReal() : enviarTextoComBotoesSimulacao();
                 } else if (imagemSelecionada) {
@@ -716,6 +742,11 @@ const SimuladorPage = () => {
                   contatoSelecionado ? enviarTextoReal() : enviarTextoSimulacao();
                 }
               }
+            }}
+            onInput={e => {
+              const target = e.target as HTMLTextAreaElement;
+              target.style.height = 'auto';
+              target.style.height = Math.min(target.scrollHeight, 120) + 'px';
             }}
           />
 
@@ -728,7 +759,7 @@ const SimuladorPage = () => {
                 className="btn-simular"
                 title="Simular envio de mensagem com botões"
               >
-                Simular Botões
+                Simular
               </button>
               {contatoSelecionado && (
                 <button
@@ -737,7 +768,7 @@ const SimuladorPage = () => {
                   className="btn-real"
                   title="Enviar mensagem com botões real"
                 >
-                  {enviando ? 'Enviando...' : 'Enviar Botões'}
+                  {enviando ? 'Enviando...' : 'Enviar WhatsApp'}
                 </button>
               )}
             </div>
@@ -806,7 +837,7 @@ const SimuladorPage = () => {
           <div className="modal-content modal-botoes" onClick={e => e.stopPropagation()}>
             <h3>Criar Botões de Ação</h3>
             <p style={{ color: '#bfc7d5', fontSize: '0.9rem', marginBottom: '16px' }}>
-              Adicione até 3 botões interativos à sua mensagem
+              Adicione quantos botões quiser à sua mensagem
             </p>
             
             <div className="botoes-editor">
@@ -820,16 +851,6 @@ const SimuladorPage = () => {
                   </div>
                   
                   <div className="botao-fields">
-                    <select
-                      value={botao.type}
-                      onChange={e => atualizarBotao(index, 'type', e.target.value)}
-                      className="botao-select"
-                    >
-                      <option value="REPLY">Resposta Rápida</option>
-                      <option value="CALL">Fazer Ligação</option>
-                      <option value="URL">Abrir Link</option>
-                    </select>
-                    
                     <input
                       type="text"
                       value={botao.label}
@@ -837,37 +858,32 @@ const SimuladorPage = () => {
                       placeholder="Texto do botão"
                       className="botao-input"
                     />
-                    
-                    {botao.type === 'CALL' && (
-                      <input
-                        type="text"
-                        value={botao.phone || ''}
-                        onChange={e => atualizarBotao(index, 'phone', e.target.value)}
-                        placeholder="Número para ligação (ex: 5511999999999)"
-                        className="botao-input"
-                      />
-                    )}
-                    
-                    {botao.type === 'URL' && (
-                      <input
-                        type="text"
-                        value={botao.url || ''}
-                        onChange={e => atualizarBotao(index, 'url', e.target.value)}
-                        placeholder="URL do link (ex: https://exemplo.com)"
-                        className="botao-input"
-                      />
-                    )}
                   </div>
                 </div>
               ))}
               
-              {botoesAcao.length < 3 && (
-                <button onClick={adicionarBotao} className="btn-adicionar-botao">
-                  <FiPlus size={16} />
-                  Adicionar Botão
-                </button>
-              )}
+              <button onClick={adicionarBotao} className="btn-adicionar-botao">
+                <FiPlus size={16} />
+                Adicionar Botão
+              </button>
             </div>
+
+            {/* Mostrar preview da imagem se selecionada junto com botões */}
+            {imagemSelecionada && (
+              <div className="modal-image-preview">
+                <div className="preview-titulo">Imagem selecionada:</div>
+                <div className="preview-imagem-modal">
+                  <img src={imagemSelecionada} alt="Preview" className="preview-thumb-modal" />
+                  <div className="preview-info-modal">
+                    <div className="preview-nome-modal">{nomeArquivo}</div>
+                    <div className="preview-status-modal">Será enviada junto com os botões</div>
+                  </div>
+                  <button onClick={removerImagem} className="preview-remover-modal" title="Remover imagem">
+                    <FiX size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
             
             <div className="modal-actions">
               <button onClick={() => setModalBotoes(false)} className="btn-confirmar-botoes">
@@ -1216,22 +1232,54 @@ const SimuladorPage = () => {
           font-size: 0.9rem;
         }
 
-        .botoes-preview-list {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          margin: 8px 0;
+        .modal-image-preview {
+          margin: 16px 0;
+          padding: 12px;
+          background: #18181b;
+          border-radius: 8px;
+          border: 1px solid #31313d;
         }
 
-        .limpar-botoes-btn {
+        .preview-imagem-modal {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-top: 8px;
+        }
+
+        .preview-thumb-modal {
+          width: 50px;
+          height: 50px;
+          border-radius: 6px;
+          object-fit: cover;
+          border: 1px solid #31313d;
+        }
+
+        .preview-info-modal {
+          flex: 1;
+        }
+
+        .preview-nome-modal {
+          font-size: 0.9rem;
+          color: #7dd3fc;
+          font-weight: 500;
+        }
+
+        .preview-status-modal {
+          font-size: 0.8rem;
+          color: #22c55e;
+        }
+
+        .preview-remover-modal {
           background: #ef4444;
           color: #fff;
           border: none;
           border-radius: 4px;
-          padding: 4px 8px;
-          font-size: 0.8rem;
+          padding: 6px;
           cursor: pointer;
-          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
         .input-area {
@@ -1302,6 +1350,12 @@ const SimuladorPage = () => {
           color: #fff;
           font-size: 1rem;
           outline: none;
+          resize: none;
+          min-height: 40px;
+          max-height: 120px;
+          overflow-y: auto;
+          font-family: inherit;
+          line-height: 1.4;
         }
 
         .text-input::placeholder {
@@ -1679,4 +1733,4 @@ const SimuladorPage = () => {
   );
 };
 
-export default SimuladorPage;
+export default withZCampanhaAuth(SimuladorPage);

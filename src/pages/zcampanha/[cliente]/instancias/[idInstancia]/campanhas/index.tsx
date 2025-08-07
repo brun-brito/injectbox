@@ -1,93 +1,24 @@
 import { useRouter } from 'next/router';
 import { useEffect, useState, useMemo } from 'react';
-import ContentEditable from 'react-contenteditable';
-import exemploBotoes from '@/assets/fotos/zcampanha/exemplo-botoes.jpeg';
 import { campanhaStyle } from './campanha-style';
 import * as Icons from 'react-icons/fi';
 import Erro from '@/components/Erro';
 import Aviso from '@/components/Aviso';
 import Confirmacao from '@/components/Confirmacao';
 import { usePollingCampanha } from '@/hooks/usePollingCampanha';
-
-// Tipos importados (mesmos do backend)
-type StatusCampanha = 'rascunho' | 'agendada' | 'enviando' | 'pausada' | 'concluida' | 'cancelada';
-type TipoMensagem = 'texto' | 'imagem' | 'botoes';
-
-type ButtonAction = {
-  id: string;
-  type: 'CALL' | 'URL' | 'REPLY';
-  label: string;
-  phone?: string;
-  url?: string;
-};
-
-type ConteudoMensagem = {
-  tipo: TipoMensagem;
-  texto?: string;
-  imagem?: string;
-  legenda?: string;
-  botoes?: ButtonAction[];
-  variacoes?: string[];
-};
-
-type ContatoSelecionado = {
-  id: string;
-  nome: string;
-  numero: string;
-};
-
-type LogEnvio = {
-  contatoId: string;
-  nomeContato: string;
-  numeroContato: string;
-  status: 'pendente' | 'enviando' | 'sucesso' | 'erro';
-  timestampEnvio?: number;
-  tempoResposta?: number;
-  codigoResposta?: number;
-  mensagemErro?: string;
-  tentativas: number;
-  ultimaTentativa?: number;
-  variacaoUsada?: {
-    indice: number;
-    conteudo: string;
-    tipo: 'texto' | 'legenda';
-  };
-};
-
-type EstatisticasCampanha = {
-  totalContatos: number;
-  pendentes: number;
-  enviados: number;
-  sucessos: number;
-  erros: number;
-  percentualSucesso: number;
-};
-
-type Campanha = {
-  id?: string;
-  nome: string;
-  descricao?: string;
-  conteudo: ConteudoMensagem;
-  contatos: ContatoSelecionado[];
-  status: StatusCampanha;
-  dataAgendamento?: number;
-  dataCriacao: number;
-  dataInicio?: number;
-  dataConclusao?: number;
-  criadoPor: string;
-  estatisticas: EstatisticasCampanha;
-  logs: LogEnvio[];
-};
-
-type Contato = { id: string; nome: string; numero: string };
+import { withZCampanhaAuth } from '@/components/zcampanha/withZCampanhaAuth';
+import * as Type from '@/types/Campanha';
+import { CampanhaCard } from '@/components/zcampanha/campanhas/CampanhaCard';
+import CampanhaForm from '@/components/zcampanha/campanhas/CampanhaForm';
+import ModaisSelecao from '@/components/zcampanha/campanhas/ModaisSelecao';
+import CampanhaDetalhes from '@/components/zcampanha/campanhas/CampanhaDetalhes';
 
 const CampanhasPage = () => {
   const router = useRouter();
   const { cliente, idInstancia } = router.query as { cliente: string; idInstancia: string };
-
   // Estados principais
-  const [campanhas, setCampanhas] = useState<Campanha[]>([]);
-  const [contatos, setContatos] = useState<Contato[]>([]);
+  const [campanhas, setCampanhas] = useState<Type.Campanha[]>([]);
+  const [contatos, setContatos] = useState<Type.Contato[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [aviso, setAviso] = useState('');
@@ -104,31 +35,34 @@ const CampanhasPage = () => {
     mensagem: '',
     onConfirmar: () => {}
   });
+  const [instanceData, setInstanceData] = useState<{nome: string; numero: string} | null>(null);
 
   // Estados para busca e paginação
   const [busca, setBusca] = useState('');
-  const [filtroStatus, setFiltroStatus] = useState<StatusCampanha | ''>('');
+  const [filtroStatus, setFiltroStatus] = useState<Type.StatusCampanha | ''>('');
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensPorPagina] = useState(10);
 
   // Estados para modais
   const [modalCriar, setModalCriar] = useState(false);
-  const [modalDetalhes, setModalDetalhes] = useState<Campanha | null>(null);
+  const [modalDetalhes, setModalDetalhes] = useState<Type.Campanha | null>(null);
   const [modalContatos, setModalContatos] = useState(false);
-  const [campanhaEmEdicao, setCampanhaEmEdicao] = useState<Campanha | null>(null);
+  const [campanhaEmEdicao, setCampanhaEmEdicao] = useState<Type.Campanha | null>(null);
 
   // Estados do formulário de criação expandidos
   const [nome, setNome] = useState('');
   const [descricao, setDescricao] = useState('');
-  const [tipoMensagem, setTipoMensagem] = useState<TipoMensagem>('texto');
+  const [tipoMensagem, setTipoMensagem] = useState<Type.TipoMensagem>('texto');
   const [textoMensagem, setTextoMensagem] = useState('');
   const [imagemBase64, setImagemBase64] = useState('');
   const [legendaImagem, setLegendaImagem] = useState('');
-  const [botoesAcao, setBotoesAcao] = useState<ButtonAction[]>([]);
-  const [contatosSelecionados, setContatosSelecionados] = useState<ContatoSelecionado[]>([]);
+  const [botoesAcao, setBotoesAcao] = useState<Type.ButtonAction[]>([]);
+  const [contatosSelecionados, setContatosSelecionados] = useState<Type.ContatoSelecionado[]>([]);
 
   // Estados para controle de envio
   const [enviandoCampanha, setEnviandoCampanha] = useState<string | null>(null);
+  const [pausandoCampanha, setPausandoCampanha] = useState<string | null>(null);
+  const [cancelandoCampanha, setCancelandoCampanha] = useState<string | null>(null);
 
   // Estados para o modal de contatos
   const [buscaContatos, setBuscaContatos] = useState('');
@@ -215,6 +149,11 @@ const CampanhasPage = () => {
     closeMenu();
   };
 
+  // Função para processar quebras de linha
+  const processarQuebrasLinha = (texto: string): string => {
+    return texto.replace(/\n/g, '\n');
+  };
+
   // Buscar campanhas
   const fetchCampanhas = async () => {
     setLoading(true);
@@ -266,6 +205,21 @@ const CampanhasPage = () => {
       fetchCampanhas();
       fetchContatos();
       fetchGrupos(); // Adicionar chamada para buscar grupos
+      
+      // Buscar dados da instância
+      fetch(`/api/zcampanha/${cliente}/instancias`)
+        .then(res => res.json())
+        .then((data) => {
+          if (data.instancias) {
+            const instance = data.instancias.find((inst: any) => inst.idInstancia === idInstancia);
+            if (instance) {
+              setInstanceData({ nome: instance.nome, numero: instance.numero });
+            }
+          }
+        })
+        .catch(error => {
+          console.error('Erro ao buscar dados da instância:', error);
+        });
     }
   }, [cliente, idInstancia]);
 
@@ -340,13 +294,8 @@ const CampanhasPage = () => {
 
   // Função para adicionar botão
   const adicionarBotao = () => {
-    if (botoesAcao.length >= 3) {
-      setErro('Máximo de 3 botões permitidos.');
-      return;
-    }
-    const novoBotao: ButtonAction = {
+    const novoBotao: Type.ButtonAction = {
       id: (botoesAcao.length + 1).toString(),
-      type: 'REPLY',
       label: ''
     };
     setBotoesAcao([...botoesAcao, novoBotao]);
@@ -358,7 +307,7 @@ const CampanhasPage = () => {
   };
 
   // Função para atualizar botão
-  const atualizarBotao = (index: number, campo: keyof ButtonAction, valor: string) => {
+  const atualizarBotao = (index: number, campo: keyof Type.ButtonAction, valor: string) => {
     const novosBotoes = [...botoesAcao];
     novosBotoes[index] = { ...novosBotoes[index], [campo]: valor };
     setBotoesAcao(novosBotoes);
@@ -372,7 +321,7 @@ const CampanhasPage = () => {
     }
 
     // Validação por tipo de mensagem
-    let conteudo: ConteudoMensagem;
+    let conteudo: Type.ConteudoMensagem;
     
     switch (tipoMensagem) {
       case 'texto':
@@ -380,7 +329,7 @@ const CampanhasPage = () => {
           setErro('Digite a mensagem de texto');
           return;
         }
-        conteudo = { tipo: 'texto', texto: textoMensagem };
+        conteudo = { tipo: 'texto', texto: processarQuebrasLinha(textoMensagem) };
         break;
         
       case 'imagem':
@@ -394,7 +343,7 @@ const CampanhasPage = () => {
         };
         // Adicionar legenda apenas se não estiver vazia
         if (legendaImagem.trim()) {
-          conteudo.legenda = legendaImagem.trim();
+          conteudo.legenda = processarQuebrasLinha(legendaImagem.trim());
         }
         break;
         
@@ -413,18 +362,10 @@ const CampanhasPage = () => {
             setErro('Todos os botões devem ter um texto');
             return;
           }
-          if (botao.type === 'CALL' && !botao.phone?.trim()) {
-            setErro('Botões de ligação devem ter um número de telefone');
-            return;
-          }
-          if (botao.type === 'URL' && !botao.url?.trim()) {
-            setErro('Botões de link devem ter uma URL');
-            return;
-          }
         }
         conteudo = { 
           tipo: 'botoes', 
-          texto: textoMensagem,
+          texto: processarQuebrasLinha(textoMensagem),
           botoes: botoesAcao
         };
         break;
@@ -516,7 +457,7 @@ const CampanhasPage = () => {
   };
 
   // Iniciar edição da campanha
-  const iniciarEdicao = (campanha: Campanha) => {
+  const iniciarEdicao = (campanha: Type.Campanha) => {
     setCampanhaEmEdicao(campanha);
     setNome(campanha.nome);
     setDescricao(campanha.descricao || '');
@@ -575,7 +516,7 @@ const CampanhasPage = () => {
         // Atualizar a campanha na lista local
         setCampanhas(prev => prev.map(campanha => 
           campanha.id === campanhaId 
-            ? { ...campanha, status: 'enviando' as StatusCampanha, dataInicio: Date.now() }
+            ? { ...campanha, status: 'enviando' as Type.StatusCampanha, dataInicio: Date.now() }
             : campanha
         ));
 
@@ -599,8 +540,167 @@ const CampanhasPage = () => {
     }
   };
 
+  // Pausar campanha em envio
+  const pausarCampanha = async (campanhaId: string) => {
+    setConfirmacao({
+      mostrar: true,
+      titulo: 'Pausar Campanha',
+      mensagem: 'Tem certeza que deseja pausar esta campanha?\n\nO envio será interrompido após a mensagem atual e poderá ser retomado posteriormente.',
+      tipo: 'warning',
+      textoConfirmar: 'Pausar',
+      onConfirmar: () => {
+        setConfirmacao(prev => ({ ...prev, mostrar: false }));
+        executarPausarCampanha(campanhaId);
+      }
+    });
+  };
+
+  const executarPausarCampanha = async (campanhaId: string) => {
+    setPausandoCampanha(campanhaId);
+    
+    try {
+      const response = await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/campanhas/${campanhaId}/controle`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ acao: 'pausar' })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // Atualizar campanha na lista local
+        setCampanhas(prev => prev.map(campanha => 
+          campanha.id === campanhaId 
+            ? { ...campanha, status: 'pausada' as Type.StatusCampanha }
+            : campanha
+        ));
+
+        // Parar polling se estiver ativo
+        if (statusPolling?.id === campanhaId) {
+          stopPolling();
+        }
+
+        setAviso('Campanha pausada com sucesso!\n\nVocê pode retomá-la a qualquer momento.');
+      } else {
+        setErro(data.error || 'Erro ao pausar campanha');
+      }
+    } catch (error) {
+      setErro('Erro de conexão ao pausar campanha');
+    } finally {
+      setPausandoCampanha(null);
+    }
+  };
+
+  // Retomar campanha pausada
+  const retomarCampanha = async (campanhaId: string) => {
+    setConfirmacao({
+      mostrar: true,
+      titulo: 'Retomar Campanha',
+      mensagem: 'Deseja retomar o envio desta campanha?\n\nO processo continuará de onde parou.',
+      tipo: 'info',
+      textoConfirmar: 'Retomar',
+      onConfirmar: () => {
+        setConfirmacao(prev => ({ ...prev, mostrar: false }));
+        executarRetomarCampanha(campanhaId);
+      }
+    });
+  };
+
+  const executarRetomarCampanha = async (campanhaId: string) => {
+    setEnviandoCampanha(campanhaId);
+    
+    try {
+      const response = await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/campanhas/${campanhaId}/controle`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ acao: 'retomar' })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // Atualizar campanha na lista local
+        setCampanhas(prev => prev.map(campanha => 
+          campanha.id === campanhaId 
+            ? { ...campanha, status: 'enviando' as Type.StatusCampanha }
+            : campanha
+        ));
+
+        // Iniciar acompanhamento via polling
+        startPolling(campanhaId, cliente, idInstancia);
+        setCampanhaAcompanhada(campanhaId);
+        setMostrarModalProgresso(true);
+
+        setAviso('Campanha retomada com sucesso!\n\nO envio continuará de onde parou.');
+      } else {
+        setErro(data.error || 'Erro ao retomar campanha');
+      }
+    } catch (error) {
+      setErro('Erro de conexão ao retomar campanha');
+    } finally {
+      setEnviandoCampanha(null);
+    }
+  };
+
+  // Cancelar/Interromper campanha definitivamente
+  const cancelarCampanha = async (campanhaId: string) => {
+    setConfirmacao({
+      mostrar: true,
+      titulo: 'Cancelar Campanha',
+      mensagem: 'Tem certeza que deseja CANCELAR esta campanha?\n\n⚠️ ATENÇÃO: Esta ação é irreversível!\n\nO envio será interrompido permanentemente e a campanha será marcada como cancelada.',
+      tipo: 'danger',
+      textoConfirmar: 'Cancelar Definitivamente',
+      onConfirmar: () => {
+        setConfirmacao(prev => ({ ...prev, mostrar: false }));
+        executarCancelarCampanha(campanhaId);
+      }
+    });
+  };
+
+  const executarCancelarCampanha = async (campanhaId: string) => {
+    setCancelandoCampanha(campanhaId);
+    
+    try {
+      const response = await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/campanhas/${campanhaId}/controle`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ acao: 'cancelar' })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // Atualizar campanha na lista local
+        setCampanhas(prev => prev.map(campanha => 
+          campanha.id === campanhaId 
+            ? { ...campanha, status: 'cancelada' as Type.StatusCampanha, dataConclusao: Date.now() }
+            : campanha
+        ));
+
+        // Parar polling se estiver ativo
+        if (statusPolling?.id === campanhaId) {
+          stopPolling();
+        }
+
+        // Fechar modal de progresso se estiver aberto
+        if (campanhaAcompanhada === campanhaId) {
+          setMostrarModalProgresso(false);
+          setCampanhaAcompanhada(null);
+        }
+
+        setAviso('Campanha cancelada com sucesso!\n\nO envio foi interrompido permanentemente.');
+      } else {
+        setErro(data.error || 'Erro ao cancelar campanha');
+      }
+    } catch (error) {
+      setErro('Erro de conexão ao cancelar campanha');
+    } finally {
+      setCancelandoCampanha(null);
+    }
+  };
+
   // Função para ver detalhes da campanha (modificada para detectar campanhas em envio)
-  const verDetalhesCampanha = (campanha: Campanha) => {
+  const verDetalhesCampanha = (campanha: Type.Campanha) => {
     // Se a campanha estiver sendo enviada, mostrar o progresso ao invés dos detalhes normais
     if (campanha.status === 'enviando') {
       // Definir qual campanha está sendo acompanhada
@@ -627,7 +727,7 @@ const CampanhasPage = () => {
   };
 
   // Função para obter cor do status
-  const getCorStatus = (status: StatusCampanha) => {
+  const getCorStatus = (status: Type.StatusCampanha) => {
     switch (status) {
       case 'rascunho': return '#6b7280';
       case 'agendada': return '#f59e0b';
@@ -640,7 +740,7 @@ const CampanhasPage = () => {
   };
 
   // Função para traduzir status
-  const traduzirStatus = (status: StatusCampanha) => {
+  const traduzirStatus = (status: Type.StatusCampanha) => {
     switch (status) {
       case 'rascunho': return 'Rascunho';
       case 'agendada': return 'Agendada';
@@ -827,7 +927,7 @@ const CampanhasPage = () => {
     setMostrarModalProgresso(false);
   };
 
-  // Componente de progresso simplificado (atualizado)
+  // Componente de progresso simplificado (atualizado com controles)
   const ProgressoEnvio = () => {
     // Só mostrar se o modal estiver explicitamente aberto E houver campanha acompanhada
     if (!mostrarModalProgresso || !campanhaAcompanhada) {
@@ -868,6 +968,51 @@ const CampanhasPage = () => {
     if (!dadosProgresso) {
       return null;
     }
+
+    // Função para pausar campanha do modal
+    const pausarCampanhaModal = () => {
+      setConfirmacao({
+        mostrar: true,
+        titulo: 'Pausar Campanha',
+        mensagem: 'Tem certeza que deseja pausar esta campanha?\n\nO envio será interrompido após a mensagem atual e poderá ser retomado posteriormente.',
+        tipo: 'warning',
+        textoConfirmar: 'Pausar',
+        onConfirmar: () => {
+          setConfirmacao(prev => ({ ...prev, mostrar: false }));
+          executarPausarCampanha(campanhaAcompanhada!);
+        }
+      });
+    };
+
+    // Função para retomar campanha do modal
+    const retomarCampanhaModal = () => {
+      setConfirmacao({
+        mostrar: true,
+        titulo: 'Retomar Campanha',
+        mensagem: 'Deseja retomar o envio desta campanha?\n\nO processo continuará de onde parou.',
+        tipo: 'info',
+        textoConfirmar: 'Retomar',
+        onConfirmar: () => {
+          setConfirmacao(prev => ({ ...prev, mostrar: false }));
+          executarRetomarCampanha(campanhaAcompanhada!);
+        }
+      });
+    };
+
+    // Função para cancelar campanha do modal
+    const cancelarCampanhaModal = () => {
+      setConfirmacao({
+        mostrar: true,
+        titulo: 'Cancelar Campanha',
+        mensagem: 'Tem certeza que deseja CANCELAR esta campanha?\n\n⚠️ ATENÇÃO: Esta ação é irreversível!\n\nO envio será interrompido permanentemente e a campanha será marcada como cancelada.',
+        tipo: 'danger',
+        textoConfirmar: 'Cancelar Definitivamente',
+        onConfirmar: () => {
+          setConfirmacao(prev => ({ ...prev, mostrar: false }));
+          executarCancelarCampanha(campanhaAcompanhada!);
+        }
+      });
+    };
 
     return (
       <div className="progresso-envio-overlay">
@@ -935,10 +1080,24 @@ const CampanhasPage = () => {
               </div>
             )}
 
+            {dadosProgresso.status === 'pausada' && (
+              <div className="status-info pausada">
+                <Icons.FiPause size={16} />
+                <span>Campanha pausada - Aguardando retomada</span>
+              </div>
+            )}
+
             {dadosProgresso.status === 'concluida' && (
               <div className="status-info concluida">
                 <Icons.FiCheck size={16} />
                 <span>Campanha finalizada com sucesso!</span>
+              </div>
+            )}
+
+            {dadosProgresso.status === 'cancelada' && (
+              <div className="status-info cancelada">
+                <Icons.FiX size={16} />
+                <span>Campanha cancelada</span>
               </div>
             )}
 
@@ -949,19 +1108,108 @@ const CampanhasPage = () => {
             </div>
           </div>
 
+          {/* NOVOS CONTROLES DE CAMPANHA NO MODAL */}
+          <div className="progresso-controles">
+            {dadosProgresso.status === 'enviando' && (
+              <div className="controles-envio">
+                <button 
+                  onClick={pausarCampanhaModal}
+                  disabled={pausandoCampanha === campanhaAcompanhada}
+                  className="btn-controle pausar"
+                  title="Pausar campanha"
+                >
+                  {pausandoCampanha === campanhaAcompanhada ? (
+                    <>
+                      <div className="loading-spinner-small" />
+                      <span>Pausando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Icons.FiPause size={16} />
+                      <span>Pausar Campanha</span>
+                    </>
+                  )}
+                </button>
+                
+                <button 
+                  onClick={cancelarCampanhaModal}
+                  disabled={cancelandoCampanha === campanhaAcompanhada}
+                  className="btn-controle cancelar"
+                  title="Cancelar campanha (irreversível)"
+                >
+                  {cancelandoCampanha === campanhaAcompanhada ? (
+                    <>
+                      <div className="loading-spinner-small" />
+                      <span>Cancelando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Icons.FiSquare size={16} />
+                      <span>Cancelar</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {dadosProgresso.status === 'pausada' && (
+              <div className="controles-pausada">
+                <button 
+                  onClick={retomarCampanhaModal}
+                  disabled={enviandoCampanha === campanhaAcompanhada}
+                  className="btn-controle retomar"
+                  title="Retomar campanha"
+                >
+                  {enviandoCampanha === campanhaAcompanhada ? (
+                    <>
+                      <div className="loading-spinner-small" />
+                      <span>Retomando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Icons.FiPlay size={16} />
+                      <span>Retomar Campanha</span>
+                    </>
+                  )}
+                </button>
+                
+                <button 
+                  onClick={cancelarCampanhaModal}
+                  disabled={cancelandoCampanha === campanhaAcompanhada}
+                  className="btn-controle cancelar"
+                  title="Cancelar campanha (irreversível)"
+                >
+                  {cancelandoCampanha === campanhaAcompanhada ? (
+                    <>
+                      <div className="loading-spinner-small" />
+                      <span>Cancelando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Icons.FiTrash2 size={16} />
+                      <span>Cancelar</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+
           <div className="progresso-actions">
             <button 
               onClick={fecharModalProgresso}
               className="btn-fechar-progresso"
             >
+              <Icons.FiEyeOff size={16} />
               Fechar (continua em background)
             </button>
             
-            {dadosProgresso.status === 'concluida' && (
+            {['concluida', 'cancelada'].includes(dadosProgresso.status) && (
               <button 
                 onClick={pararAcompanhamento}
                 className="btn-parar-acompanhamento"
               >
+                <Icons.FiStopCircle size={16} />
                 Parar Acompanhamento
               </button>
             )}
@@ -1152,7 +1400,7 @@ const CampanhasPage = () => {
       
       <div className="campanhas-container">
         <div className="header-container">
-          <h2>Campanhas de Envio</h2>
+          <h2>Campanhas de Envio - {instanceData ? instanceData.nome : idInstancia}</h2>
           <button 
             onClick={abrirModalCriar}
             className="btn-criar-campanha"
@@ -1177,7 +1425,7 @@ const CampanhasPage = () => {
           
           <select
             value={filtroStatus}
-            onChange={e => setFiltroStatus(e.target.value as StatusCampanha | '')}
+            onChange={e => setFiltroStatus(e.target.value as Type.StatusCampanha | '')}
             className="filtro-status"
           >
             <option value="">Todos os status</option>
@@ -1202,97 +1450,22 @@ const CampanhasPage = () => {
           <>
             <div className="campanhas-grid">
               {campanhasPaginadas.map(campanhaItem => (
-                <div key={campanhaItem.id} className="campanha-card">
-                  <div className="campanha-header">
-                    <h3>{campanhaItem.nome}</h3>
-                    <div 
-                      className="status-badge"
-                      style={{ backgroundColor: getCorStatus(campanhaItem.status) }}
-                    >
-                      {traduzirStatus(campanhaItem.status)}
-                    </div>
-                  </div>
-                  
-                  {campanhaItem.descricao && (
-                    <p className="campanha-descricao">{campanhaItem.descricao}</p>
-                  )}
-                  
-                  <div className="campanha-stats">
-                    <div className="stat-item">
-                      <Icons.FiUsers size={16} />
-                      <span>{campanhaItem.estatisticas.totalContatos} contatos</span>
-                    </div>
-                    <div className="stat-item">
-                      <Icons.FiCheck size={16} style={{ color: "green" }}/>
-                      <span>{campanhaItem.estatisticas.sucessos} sucessos</span>
-                    </div>
-                    <div className="stat-item">
-                      <Icons.FiX size={16} style={{ color: "red" }}/>
-                      <span>{campanhaItem.estatisticas.erros} erros</span>
-                    </div>
-                  </div>
-                  
-                  <div className="campanha-info">
-                    <small>Criada em: {formatarData(campanhaItem.dataCriacao)}</small>
-                    {campanhaItem.dataInicio && (
-                      <small>Iniciada em: {formatarData(campanhaItem.dataInicio)}</small>
-                    )}
-                  </div>
-                  
-                  <div className="campanha-actions">
-                    <button
-                      onClick={() => verDetalhesCampanha(campanhaItem)}
-                      className="btn-acao ver"
-                      title={campanhaItem.status === 'enviando' ? 'Acompanhar progresso' : 'Ver detalhes'}
-                    >
-                      <Icons.FiEye size={16} />
-                    </button>
-                    
-                    {campanhaItem.status === 'rascunho' && (
-                      <button
-                        onClick={() => iniciarEdicao(campanhaItem)}
-                        className="btn-acao editar"
-                        title="Editar campanha"
-                      >
-                        <Icons.FiEdit2 size={16} />
-                      </button>
-                    )}
-                    
-                    {['rascunho', 'pausada'].includes(campanhaItem.status) && (
-                      <button
-                        onClick={() => iniciarEnvioCampanha(campanhaItem.id!)}
-                        disabled={enviandoCampanha === campanhaItem.id}
-                        className="btn-acao iniciar"
-                        title="Iniciar campanha"
-                      >
-                        {enviandoCampanha === campanhaItem.id ? (
-                          <div className="loading-spinner" />
-                        ) : (
-                          <Icons.FiPlay size={16} />
-                        )}
-                      </button>
-                    )}
-                    
-                    {campanhaItem.status === 'enviando' && (
-                      <button
-                        className="btn-acao pausar"
-                        title="Pausar campanha"
-                      >
-                        <Icons.FiPause size={16} />
-                      </button>
-                    )}
-                    
-                    {['rascunho', 'pausada', 'cancelada'].includes(campanhaItem.status) && (
-                      <button
-                        onClick={() => deletarCampanha(campanhaItem.id!)}
-                        className="btn-acao deletar"
-                        title="Deletar campanha"
-                      >
-                        <Icons.FiTrash2 size={16} />
-                      </button>
-                    )}
-                  </div>
-                </div>
+                <CampanhaCard
+                  key={campanhaItem.id}
+                  campanha={campanhaItem}
+                  onVerDetalhes={verDetalhesCampanha}
+                  onEditar={iniciarEdicao}
+                  onIniciarEnvio={iniciarEnvioCampanha}
+                  onRetomar={retomarCampanha}
+                  onPausar={pausarCampanha}
+                  onCancelar={cancelarCampanha}
+                  onDeletar={deletarCampanha}
+                  enviandoCampanha={enviandoCampanha}
+                  pausandoCampanha={pausandoCampanha}
+                  cancelandoCampanha={cancelandoCampanha}
+                  getCorStatus={getCorStatus}
+                  traduzirStatus={traduzirStatus}
+                />
               ))}
             </div>
 
@@ -1327,502 +1500,64 @@ const CampanhasPage = () => {
       </div>
 
       {/* Modal de criar/editar campanha */}
-      {modalCriar && (
-        <div className="modal-overlay" onClick={fecharModalCriar}>
-          <div className="modal-content modal-criar" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>{campanhaEmEdicao ? 'Editar Campanha' : 'Nova Campanha'}</h3>
-              <button onClick={fecharModalCriar} className="btn-fechar-modal">
-                <Icons.FiX size={20} />
-              </button>
-            </div>
-            
-            <div className="form-campanha">
-              <div className="form-group">
-                <label>Nome da Campanha<span className="required-asterisk">*</span></label>
-                <input
-                  type="text"
-                  value={nome}
-                  onChange={e => setNome(e.target.value)}
-                  placeholder="Ex: Promoção Black Friday"
-                  className="form-input"
-                />
-              </div>
+      <CampanhaForm
+        aberta={modalCriar}
+        onFechar={fecharModalCriar}
+        onSalvar={salvarCampanha}
+        campanhaEmEdicao={campanhaEmEdicao}
+        contatos={contatos}
+        nome={nome}
+        setNome={setNome}
+        tipoMensagem={tipoMensagem}
+        setTipoMensagem={setTipoMensagem}
+        textoMensagem={textoMensagem}
+        setTextoMensagem={setTextoMensagem}
+        legendaImagem={legendaImagem}
+        setLegendaImagem={setLegendaImagem}
+        imagemBase64={imagemBase64}
+        setImagemBase64={setImagemBase64}
+        botoesAcao={botoesAcao}
+        setBotoesAcao={setBotoesAcao}
+        contatosSelecionados={contatosSelecionados}
+        setContatosSelecionados={setContatosSelecionados}
+        erro={erro}
+        setErro={setErro}
+        isFormValid={isFormValid}
+        mostrarVariaveisTexto={mostrarVariaveisTexto}
+        setMostrarVariaveisTexto={setMostrarVariaveisTexto}
+        mostrarVariaveisLegenda={mostrarVariaveisLegenda}
+        setMostrarVariaveisLegenda={setMostrarVariaveisLegenda}
+        mostrarVariaveisBotoes={mostrarVariaveisBotoes}
+        setMostrarVariaveisBotoes={setMostrarVariaveisBotoes}
+        handleImageUpload={handleImageUpload}
+        adicionarBotao={adicionarBotao}
+        removerBotao={removerBotao}
+        atualizarBotao={atualizarBotao}
+        inserirVariavelTexto={inserirVariavelTexto}
+        inserirVariavelLegenda={inserirVariavelLegenda}
+        inserirVariavelBotoes={inserirVariavelBotoes}
+        renderizarTextoComVariaveis={renderizarTextoComVariaveis}
+        renderizarSelecaoContatos={renderizarSelecaoContatos}
+        salvarCampanha={salvarCampanha}
+        fecharModalCriar={fecharModalCriar}
+      />
 
-              {/* Seletor de tipo de mensagem */}
-              <div className="form-group">
-                <label>Tipo de Mensagem<span className="required-asterisk">*</span></label>
-                <div className="tipo-mensagem-selector">
-                  <button
-                    type="button"
-                    className={`tipo-btn ${tipoMensagem === 'texto' ? 'ativo' : ''}`}
-                    onClick={() => setTipoMensagem('texto')}
-                  >
-                    <Icons.FiFileText size={18} />
-                    <span>Texto</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`tipo-btn ${tipoMensagem === 'imagem' ? 'ativo' : ''}`}
-                    onClick={() => setTipoMensagem('imagem')}
-                  >
-                    <Icons.FiImage size={18} />
-                    <span>Imagem</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`tipo-btn ${tipoMensagem === 'botoes' ? 'ativo' : ''}`}
-                    onClick={() => setTipoMensagem('botoes')}
-                  >
-                    <Icons.FiMessageSquare size={18} />
-                    <span>Botões</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Conteúdo baseado no tipo */}
-              {tipoMensagem === 'texto' && (
-                <div className="form-group">
-                  <label>Mensagem de Texto<span className="required-asterisk">*</span></label>
-                  <div className="input-with-variables">
-                    <ContentEditable
-                      id="texto-mensagem"
-                      className="form-textarea editor-highlight"
-                      html={renderizarTextoComVariaveis(textoMensagem)}
-                      onChange={e => setTextoMensagem(e.target.value.replace(/<[^>]*>?/gm, ''))}
-                      placeholder="Digite a mensagem que será enviada..."
-                    />
-                    <div className="variables-button-container">
-                      <button
-                        type="button"
-                        className="variaveis-btn"
-                        onClick={() => setMostrarVariaveisTexto(!mostrarVariaveisTexto)}
-                        title="Inserir variáveis"
-                      >
-                        <span className="variaveis-btn-icon">@</span>
-                      </button>
-                      <MenuVariaveis 
-                        mostrar={mostrarVariaveisTexto}
-                        onInserir={inserirVariavelTexto}
-                        onFechar={() => setMostrarVariaveisTexto(false)}
-                      />
-                    </div>
-                  </div>
-                  <small className="form-hint">
-                    Use variáveis: $nome, $primeiroNome
-                  </small>
-                </div>
-              )}
-
-              {tipoMensagem === 'imagem' && (
-                <>
-                  <div className="form-group">
-                    <label>Imagem<span className="required-asterisk">*</span></label>
-                    {!imagemBase64 ? (
-                      <div className="image-selector">
-                        <label htmlFor="image-upload" className="image-upload-btn">
-                          <Icons.FiImage size={32} className="upload-icon" />
-                          <div className="upload-text">
-                            <span className="upload-title">Clique para selecionar uma imagem</span>
-                            <span className="upload-subtitle">JPG, PNG, GIF até 10MB</span>
-                          </div>
-                        </label>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImageUpload}
-                          className="file-input-hidden"
-                          id="image-upload"
-                        />
-                      </div>
-                    ) : (
-                      <div className="image-preview-container">
-                        <div className="image-preview">
-                          <img src={imagemBase64} alt="Preview" className="preview-img" />
-                          <button
-                            type="button"
-                            onClick={() => setImagemBase64('')}
-                            className="remove-image-btn"
-                            title="Remover imagem"
-                          >
-                            <Icons.FiX size={16} />
-                          </button>
-                        </div>
-                        <div className="image-actions">
-                          <label htmlFor="image-upload" className="change-image-btn">
-                            <Icons.FiImage size={16} />
-                            Trocar imagem
-                          </label>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleImageUpload}
-                            className="file-input-hidden"
-                            id="image-upload"
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="form-group">
-                    <label>Legenda (opcional)</label>
-                    <div className="input-with-variables">
-                       <ContentEditable
-                        id="legenda-imagem"
-                        className="form-textarea editor-highlight"
-                        html={renderizarTextoComVariaveis(legendaImagem)}
-                        onChange={e => setLegendaImagem(e.target.value.replace(/<[^>]*>?/gm, ''))}
-                        placeholder="Legenda da imagem..."
-                      />
-                      <div className="variables-button-container">
-                        <button
-                          type="button"
-                          className="variaveis-btn"
-                          onClick={() => setMostrarVariaveisLegenda(!mostrarVariaveisLegenda)}
-                          title="Inserir variáveis"
-                        >
-                          @
-                        </button>
-                        <MenuVariaveis 
-                          mostrar={mostrarVariaveisLegenda}
-                          onInserir={inserirVariavelLegenda}
-                          onFechar={() => setMostrarVariaveisLegenda(false)}
-                        />
-                      </div>
-                    </div>
-                    <small className="form-hint">
-                      Use variáveis: $nome, $primeiroNome
-                    </small>
-                  </div>
-                </>
-              )}
-
-              {tipoMensagem === 'botoes' && (
-                <>
-                  <div className="form-group">
-                    <label>Mensagem de Texto<span className="required-asterisk">*</span></label>
-                    <div className="input-with-variables">
-                      <ContentEditable
-                        id="texto-botoes"
-                        className="form-textarea editor-highlight"
-                        html={renderizarTextoComVariaveis(textoMensagem)}
-                        onChange={e => setTextoMensagem(e.target.value.replace(/<[^>]*>?/gm, ''))}
-                        placeholder="Digite a mensagem que acompanha os botões..."
-                      />
-                      <div className="variables-button-container">
-                        <button
-                          type="button"
-                          className="variaveis-btn"
-                          onClick={() => setMostrarVariaveisBotoes(!mostrarVariaveisBotoes)}
-                          title="Inserir variáveis"
-                        >
-                          @
-                        </button>
-                        <MenuVariaveis 
-                          mostrar={mostrarVariaveisBotoes}
-                          onInserir={inserirVariavelBotoes}
-                          onFechar={() => setMostrarVariaveisBotoes(false)}
-                        />
-                      </div>
-                    </div>
-                    <small className="form-hint">
-                      Use variáveis: $nome, $primeiroNome
-                    </small>
-                  </div>
-
-                  {/* Seção de exemplos de botões */}
-                  <div className="form-group">
-
-                    {/* Imagem de exemplo */}
-                    <div className="exemplo-imagem-container">
-                      <div className="exemplo-imagem-header">
-                        <span>📱 Exemplo de como aparece cada um no WhatsApp:</span>
-                      </div>
-                      <div className="exemplo-imagem-wrapper">
-                        <img 
-                          src={exemploBotoes.src} 
-                          alt="Exemplo de botões no WhatsApp"
-                          className="exemplo-imagem"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="form-group">
-                    <label>Botões de Ação (máximo 3)<span className="required-asterisk">*</span></label>
-                    <div className="botoes-editor">
-                      {botoesAcao.map((botao, index) => (
-                        <div key={index} className="botao-item">
-                          <div className="botao-header">
-                            <span>Botão {index + 1}</span>
-                            <button
-                              type="button"
-                              onClick={() => removerBotao(index)}
-                              className="btn-remover-botao"
-                            >
-                              <Icons.FiX size={14} />
-                            </button>
-                          </div>
-                          
-                          <div className="botao-fields">
-                            <select
-                              value={botao.type}
-                              onChange={e => atualizarBotao(index, 'type', e.target.value)}
-                              className="botao-select"
-                            >
-                              <option value="REPLY">Resposta Rápida</option>
-                              <option value="CALL">Fazer Ligação</option>
-                              <option value="URL">Abrir Link</option>
-                            </select>
-                            
-                            <input
-                              type="text"
-                              value={botao.label}
-                              onChange={e => atualizarBotao(index, 'label', e.target.value)}
-                              placeholder="Texto do botão"
-                              className="botao-input"
-                            />
-                            
-                            {botao.type === 'CALL' && (
-                              <input
-                                type="text"
-                                value={botao.phone || ''}
-                                onChange={e => atualizarBotao(index, 'phone', e.target.value)}
-                                placeholder="Número para ligação (ex: 5511999999999)"
-                                className="botao-input"
-                              />
-                            )}
-                            
-                            {botao.type === 'URL' && (
-                              <input
-                                type="text"
-                                value={botao.url || ''}
-                                onChange={e => atualizarBotao(index, 'url', e.target.value)}
-                                placeholder="URL do link (ex: https://exemplo.com)"
-                                className="botao-input"
-                              />
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                      
-                      {botoesAcao.length < 3 && (
-                        <button
-                          type="button"
-                          onClick={adicionarBotao}
-                          className="btn-adicionar-botao"
-                        >
-                          <Icons.FiPlus size={16} />
-                          Adicionar Botão
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-              
-              {renderizarSelecaoContatos()}
-            </div>
-            
-            <div className="modal-actions">
-              <button onClick={salvarCampanha} className="btn-criar" disabled={!isFormValid}>
-                {campanhaEmEdicao ? <Icons.FiCheck size={16} /> : <Icons.FiPlus size={16} />}
-                {campanhaEmEdicao ? 'Salvar Alterações' : 'Criar Campanha'}
-              </button>
-              <button onClick={fecharModalCriar} className="btn-cancelar">
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de seleção de contatos */}
-      {modalContatos && (
-        <div className="modal-overlay" onClick={fecharModalContatos}>
-          <div className="modal-content modal-contatos" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Selecionar Contatos</h3>
-              <button onClick={fecharModalContatos} className="btn-fechar-modal">
-                <Icons.FiX size={20} />
-              </button>
-            </div>
-
-            {/* Barra de busca */}
-            <div className="busca-contatos-container">
-              <div className="busca-contatos-wrapper">
-                <Icons.FiSearch className="busca-contatos-icon" />
-                <input
-                  type="text"
-                  placeholder="Buscar por nome ou número..."
-                  value={buscaContatos}
-                  onChange={e => setBuscaContatos(e.target.value)}
-                  className="busca-contatos-input"
-                />
-                {buscaContatos && (
-                  <button 
-                    onClick={() => setBuscaContatos('')}
-                    className="limpar-busca-btn"
-                    title="Limpar busca"
-                  >
-                    <Icons.FiX size={16} />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Controles de seleção */}
-            <div className="controles-selecao">
-              <div className="info-selecao">
-                <span className="total-contatos">
-                  {contatosFiltradosOrdenados.length} contatos
-                  {buscaContatos && ` encontrados`}
-                </span>
-                <span className="contatos-selecionados-info">
-                  {contatosSelecionados.length} selecionados
-                </span>
-              </div>
-              
-              {contatosFiltradosOrdenados.length > 0 && (
-                <div className="acoes-selecao">
-                  <label className="checkbox-todos">
-                    <input
-                      type="checkbox"
-                      checked={todosSelecionados}
-                      ref={input => {
-                        if (input) input.indeterminate = !todosSelecionados && algunsSelecionados;
-                      }}
-                      onChange={toggleTodosContatos}
-                    />
-                    <span className="checkbox-label">
-                      {todosSelecionados ? 'Desmarcar todos' : 'Marcar todos'}
-                    </span>
-                  </label>
-                </div>
-              )}
-            </div>
-            
-            <div className="contatos-lista">
-              {contatosFiltradosOrdenados.length === 0 ? (
-                <div className="sem-contatos">
-                  {buscaContatos ? (
-                    <>
-                      Nenhum contato encontrado para "{buscaContatos}"
-                      <button 
-                        onClick={() => setBuscaContatos('')}
-                        className="btn-limpar-busca-sem-resultados"
-                      >
-                        Limpar busca
-                      </button>
-                    </>
-                  ) : (
-                    'Nenhum contato disponível na agenda'
-                  )}
-                </div>
-              ) : (
-                contatosFiltradosOrdenados.map(contato => {
-                  const jaSelecionado = contatosSelecionados.some(c => c.id === contato.id);
-                  return (
-                    <label key={contato.id} className="contato-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={jaSelecionado}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setContatosSelecionados([...contatosSelecionados, contato]);
-                          } else {
-                            setContatosSelecionados(contatosSelecionados.filter(c => c.id !== contato.id));
-                          }
-                        }}
-                      />
-                      <span className="contato-nome">{contato.nome}</span>
-                      <span className="contato-numero">{contato.numero}</span>
-                    </label>
-                  );
-                })
-              )}
-            </div>
-            
-            <div className="modal-actions">
-              <button onClick={fecharModalContatos} className="btn-confirmar">
-                Confirmar Seleção ({contatosSelecionados.length})
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de seleção de grupos */}
-      {modalGrupos && (
-        <div className="modal-overlay" onClick={() => setModalGrupos(false)}>
-          <div className="modal-content modal-grupos" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Selecionar Grupos</h3>
-              <button onClick={() => setModalGrupos(false)} className="btn-fechar-modal">
-                <Icons.FiX size={20} />
-              </button>
-            </div>
-
-            <div className="grupos-lista">
-              {grupos.length === 0 ? (
-                <div className="sem-grupos">
-                  <div className="empty-icon">
-                    <svg width="48" height="48" fill="currentColor" viewBox="0 0 24 24" opacity="0.3">
-                      <path d="M16 4c0-1.11.89-2 2-2s2 .89 2 2-.89 2-2 2-2-.89-2-2zm4 18v-6h2.5l-2.54-7.63A1.5 1.5 0 0 0 18.54 8H17c-.8 0-1.5.7-1.5 1.5v6c0 .8.7 1.5 1.5 1.5h1v5h2z"/>
-                    </svg>
-                  </div>
-                  <h4>Nenhum grupo disponível</h4>
-                  <p>Crie grupos na seção "Grupos de Usuários" para organizá-los aqui.</p>
-                </div>
-              ) : (
-                grupos.map(grupo => {
-                  const jaSelecionado = gruposSelecionados.includes(grupo.id);
-                  return (
-                    <label key={grupo.id} className={`grupo-checkbox ${jaSelecionado ? 'selecionado' : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={jaSelecionado}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setGruposSelecionados(prev => [...prev, grupo.id]);
-                          } else {
-                            setGruposSelecionados(prev => prev.filter(gId => gId !== grupo.id));
-                          }
-                        }}
-                      />
-                      <div className="grupo-item">
-                        <div 
-                          className="grupo-cor-indicator" 
-                          style={{ backgroundColor: grupo.cor }}
-                        ></div>
-                        <div className="grupo-details">
-                          <span className="grupo-nome">{grupo.nome}</span>
-                          <span className="grupo-total">{grupo.totalContatos} contatos</span>
-                        </div>
-                        <div className="checkbox-custom">
-                          <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                          </svg>
-                        </div>
-                      </div>
-                    </label>
-                  );
-                })
-              )}
-            </div>
-            
-            <div className="modal-actions">
-              <button onClick={aplicarSelecaoGrupos} className="btn-confirmar" disabled={grupos.length === 0}>
-                <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-                Confirmar Seleção ({gruposSelecionados.length})
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Componente de modais de seleção */}
+      <ModaisSelecao
+        modalContatos={modalContatos}
+        setModalContatos={setModalContatos}
+        contatos={contatos}
+        contatosSelecionados={contatosSelecionados}
+        setContatosSelecionados={setContatosSelecionados}
+        buscaContatos={buscaContatos}
+        setBuscaContatos={setBuscaContatos}
+        modalGrupos={modalGrupos}
+        setModalGrupos={setModalGrupos}
+        grupos={grupos}
+        gruposSelecionados={gruposSelecionados}
+        setGruposSelecionados={setGruposSelecionados}
+        aplicarSelecaoGrupos={aplicarSelecaoGrupos}
+      />
 
       {/* Modal de detalhes da campanha */}
       {modalDetalhes && (
@@ -1854,6 +1589,7 @@ const CampanhasPage = () => {
                       <div 
                         className="preview-texto"
                         dangerouslySetInnerHTML={{ __html: renderizarTextoComVariaveis(modalDetalhes.conteudo.texto || '') }}
+                        style={{ whiteSpace: 'pre-wrap' }}
                       />
                     )}
                     
@@ -1874,6 +1610,7 @@ const CampanhasPage = () => {
                             <div 
                               className="legenda-texto"
                               dangerouslySetInnerHTML={{ __html: renderizarTextoComVariaveis(modalDetalhes.conteudo.legenda) }}
+                              style={{ whiteSpace: 'pre-wrap' }}
                             />
                           </div>
                         )}
@@ -1891,6 +1628,7 @@ const CampanhasPage = () => {
                           <div 
                             className="texto-principal"
                             dangerouslySetInnerHTML={{ __html: renderizarTextoComVariaveis(modalDetalhes.conteudo.texto || '') }}
+                            style={{ whiteSpace: 'pre-wrap' }}
                           />
                         </div>
                         
@@ -1903,24 +1641,8 @@ const CampanhasPage = () => {
                                   <div className="botao-info">
                                     <span className="botao-label">{botao.label}</span>
                                     <span className="botao-tipo">
-                                      {botao.type === 'REPLY' && (
-                                        <>
-                                          <Icons.FiMessageCircle size={12} />
-                                          Resposta
-                                        </>
-                                      )}
-                                      {botao.type === 'CALL' && (
-                                        <>
-                                          <Icons.FiPhone size={12} />
-                                          Ligar: {botao.phone}
-                                        </>
-                                      )}
-                                      {botao.type === 'URL' && (
-                                        <>
-                                          <Icons.FiExternalLink size={12} />
-                                          Link: {botao.url}
-                                        </>
-                                      )}
+                                      <Icons.FiMessageCircle size={12} />
+                                      Resposta
                                     </span>
                                   </div>
                                 </div>
@@ -2098,4 +1820,4 @@ const CampanhasPage = () => {
   );
 };
 
-export default CampanhasPage;
+export default withZCampanhaAuth(CampanhasPage);

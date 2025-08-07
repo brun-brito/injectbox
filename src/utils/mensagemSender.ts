@@ -56,9 +56,12 @@ export class MensagemSender {
       return { sucesso: false, erro: 'Texto da mensagem não pode estar vazio' };
     }
 
+    let mensagemProcessada = this.processarVariaveis(conteudo.texto, contato);
+    mensagemProcessada = this.processarQuebrasLinha(mensagemProcessada);
+
     const payload = {
       phone: contato.numeroContato,
-      message: this.processarVariaveis(conteudo.texto, contato)
+      message: mensagemProcessada
     };
 
     return await this.fazerRequisicao('send-text', payload);
@@ -83,7 +86,9 @@ export class MensagemSender {
 
     // Adicionar legenda se fornecida
     if (conteudo.legenda?.trim()) {
-      payload.caption = this.processarVariaveis(conteudo.legenda, contato);
+      let legendaProcessada = this.processarVariaveis(conteudo.legenda, contato);
+      legendaProcessada = this.processarQuebrasLinha(legendaProcessada);
+      payload.caption = legendaProcessada;
     }
 
     return await this.fazerRequisicao('send-image', payload);
@@ -104,32 +109,32 @@ export class MensagemSender {
       return { sucesso: false, erro: 'Pelo menos um botão deve ser fornecido' };
     }
 
-    if (conteudo.botoes.length > 3) {
-      return { sucesso: false, erro: 'Máximo de 3 botões permitidos' };
-    }
-
     // Validar botões
     for (const botao of conteudo.botoes) {
       if (!botao.label?.trim()) {
         return { sucesso: false, erro: 'Todos os botões devem ter um texto' };
       }
-
-      if (botao.type === 'CALL' && !botao.phone?.trim()) {
-        return { sucesso: false, erro: 'Botões de ligação devem ter um número de telefone' };
-      }
-
-      if (botao.type === 'URL' && !botao.url?.trim()) {
-        return { sucesso: false, erro: 'Botões de link devem ter uma URL' };
-      }
     }
 
-    const payload = {
+    let mensagemProcessada = this.processarVariaveis(conteudo.texto, contato);
+    mensagemProcessada = this.processarQuebrasLinha(mensagemProcessada);
+
+    const payload: any = {
       phone: contato.numeroContato,
-      message: this.processarVariaveis(conteudo.texto, contato),
-      buttonActions: conteudo.botoes
+      message: mensagemProcessada,
+      buttonList: {
+        buttons: conteudo.botoes.map(botao => ({
+          label: botao.label
+        }))
+      }
     };
 
-    return await this.fazerRequisicao('send-button-actions', payload);
+    // Adicionar imagem se fornecida
+    if (conteudo.imagem) {
+      payload.buttonList.image = conteudo.imagem;
+    }
+
+    return await this.fazerRequisicao('send-button-list', payload);
   }
 
   /**
@@ -191,6 +196,13 @@ export class MensagemSender {
   }
 
   /**
+   * Processa quebras de linha
+   */
+  private processarQuebrasLinha(texto: string): string {
+    return texto.replace(/\n/g, '\n');
+  }
+
+  /**
    * Valida se o conteúdo da mensagem está correto
    */
   static validarConteudo(conteudo: ConteudoMensagem): { valido: boolean; erro?: string } {
@@ -209,24 +221,14 @@ export class MensagemSender {
 
       case 'botoes':
         if (!conteudo.texto?.trim()) {
-          return { valido: false, erro: 'Texto da mensagem é obrigatório para botões' };
+          return { valido: false, erro: 'Texto da mensagem com botões é obrigatório' };
         }
         if (!conteudo.botoes || conteudo.botoes.length === 0) {
           return { valido: false, erro: 'Pelo menos um botão é obrigatório' };
         }
-        if (conteudo.botoes.length > 3) {
-          return { valido: false, erro: 'Máximo de 3 botões permitidos' };
-        }
-        
         for (const botao of conteudo.botoes) {
           if (!botao.label?.trim()) {
             return { valido: false, erro: 'Todos os botões devem ter um texto' };
-          }
-          if (botao.type === 'CALL' && !botao.phone?.trim()) {
-            return { valido: false, erro: 'Botões de ligação devem ter um número' };
-          }
-          if (botao.type === 'URL' && !botao.url?.trim()) {
-            return { valido: false, erro: 'Botões de link devem ter uma URL' };
           }
         }
         break;

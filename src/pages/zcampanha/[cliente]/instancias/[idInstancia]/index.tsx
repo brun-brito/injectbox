@@ -1,8 +1,41 @@
+import { withZCampanhaAuth } from '@/components/zcampanha/withZCampanhaAuth';
 import { useRouter } from 'next/router';
+import { useState, useEffect } from 'react';
 
 const DashboardLinks = () => {
   const router = useRouter();
   const { cliente, idInstancia } = router.query as { cliente: string; idInstancia: string };
+  const [isLoading, setIsLoading] = useState(false);
+  const [instanceData, setInstanceData] = useState<{nome: string; numero: string} | null>(null);
+
+  useEffect(() => {
+    if (!cliente || !idInstancia) return;
+    
+    // Buscar dados da instância
+    fetch(`/api/zcampanha/${cliente}/instancias`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.instancias) {
+          const instance = data.instancias.find((inst: any) => inst.idInstancia === idInstancia);
+          if (instance) {
+            setInstanceData({ nome: instance.nome, numero: instance.numero });
+          }
+        }
+      })
+      .catch(error => {
+        console.error('Erro ao buscar dados da instância:', error);
+      });
+  }, [cliente, idInstancia]);
+
+  const handleNavigation = (href: string) => {
+    setIsLoading(true);
+    router.push(href);
+  };
+
+  const handleBackNavigation = () => {
+    setIsLoading(true);
+    router.push(`/zcampanha/${cliente}/instancias`);
+  };
 
   const links = [
     {
@@ -21,11 +54,11 @@ const DashboardLinks = () => {
       label: 'Grupos de Usuários',
       href: `/zcampanha/${cliente}/instancias/${idInstancia}/grupos`,
       icon: (
-        <svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="32" width="32" xmlns="http://www.w3.org/2000/svg">
-          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-          <circle cx="9" cy="7" r="4"></circle>
-          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" height="32" width="32" xmlns="http://www.w3.org/2000/svg">
+          <path stroke="#8b5cf6" d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle stroke="#8b5cf6" cx="9" cy="7" r="4"></circle>
+          <path stroke="#8b5cf6" d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path stroke="#8b5cf6" d="M16 3.13a4 4 0 0 1 0 7.75"></path>
         </svg>
       ),
       color: '#8b5cf6'
@@ -55,8 +88,21 @@ const DashboardLinks = () => {
 
   return (
     <div className="dashboard-index-bg">
+      {isLoading && (
+        <div className="loading-overlay">
+          <div className="loading-spinner">
+            <div className="spinner"></div>
+            <p>Carregando...</p>
+          </div>
+        </div>
+      )}
+      
       <div className="voltar-container">
-        <button className="voltar-btn" onClick={() => router.push(`/zcampanha/${cliente}/instancias`)}>
+        <button 
+          className="voltar-btn" 
+          onClick={handleBackNavigation}
+          disabled={isLoading}
+        >
           <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
             <path d="M19 12H5M12 19l-7-7 7-7" stroke="#7dd3fc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
@@ -65,14 +111,23 @@ const DashboardLinks = () => {
       </div>
       
       <div className="dashboard-index-container">
-        <h1>Instância: <span>{idInstancia}</span></h1>
+        <div className="instance-info">
+          {/* <h1>Instância: <span>{idInstancia}</span></h1> */}
+          {instanceData && (
+            <div className="instance-details">
+              <h1>Nome: <span>{instanceData.nome}</span></h1>
+              <h1>Número: <span>{instanceData.numero}</span></h1>
+            </div>
+          )}
+        </div>
         <div className="dashboard-links">
           {links.map(link => (
             <button
               key={link.label}
               className="dashboard-link"
               style={{ borderColor: link.color }}
-              onClick={() => router.push(link.href)}
+              onClick={() => handleNavigation(link.href)}
+              disabled={isLoading}
             >
               <span className="dashboard-link-icon">{link.icon}</span>
               <span className="dashboard-link-label">{link.label}</span>
@@ -128,6 +183,18 @@ const DashboardLinks = () => {
           box-shadow: 0 2px 8px rgba(0,0,0,0.2);
         }
 
+        .voltar-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .voltar-btn:disabled:hover {
+          background: #23232b;
+          border-color: #31313d;
+          transform: none;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+
         .dashboard-index-container {
           background: #23232b;
           border-radius: 24px;
@@ -140,10 +207,34 @@ const DashboardLinks = () => {
           border: 2px solid #31313d;
         }
 
+        .instance-info {
+          margin-bottom: 32px;
+          text-align: center;
+        }
+
+        .instance-details {
+          margin-top: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .instance-details p {
+          color: #d1d5db;
+          font-size: 1rem;
+          margin: 0;
+          font-weight: 500;
+        }
+
+        .instance-details strong {
+          color: #7dd3fc;
+          font-weight: 600;
+        }
+
         h1 {
           color: #fff;
           font-size: 1.5rem;
-          margin-bottom: 32px;
+          margin-bottom: 0;
           font-weight: 700;
           letter-spacing: 1px;
           text-align: center;
@@ -195,6 +286,16 @@ const DashboardLinks = () => {
           box-shadow: 0 4px 12px rgba(0,0,0,0.2);
         }
 
+        .dashboard-link:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .dashboard-link:disabled:hover {
+          transform: none;
+          background: #18181b;
+        }
+
         .dashboard-link-icon {
           display: flex;
           align-items: center;
@@ -203,6 +304,48 @@ const DashboardLinks = () => {
 
         .dashboard-link-label {
           font-size: 1.13rem;
+        }
+
+        .loading-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(24, 24, 27, 0.8);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          backdrop-filter: blur(4px);
+        }
+
+        .loading-spinner {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 16px;
+        }
+
+        .spinner {
+          width: 40px;
+          height: 40px;
+          border: 3px solid #31313d;
+          border-top: 3px solid #7dd3fc;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+
+        .loading-spinner p {
+          color: #7dd3fc;
+          font-size: 1.1rem;
+          font-weight: 600;
+          margin: 0;
+        }
+
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
         }
 
         @media (max-width: 768px) {
@@ -226,10 +369,14 @@ const DashboardLinks = () => {
             padding: 10px 16px;
             font-size: 0.9rem;
           }
+
+          .instance-details {
+            font-size: 0.9rem;
+          }
         }
       `}</style>
     </div>
   );
 };
 
-export default DashboardLinks;
+export default withZCampanhaAuth(DashboardLinks);

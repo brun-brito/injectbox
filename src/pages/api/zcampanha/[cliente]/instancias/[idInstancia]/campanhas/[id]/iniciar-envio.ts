@@ -3,6 +3,12 @@ import { dbAdmin } from '@/lib/firebaseAdmin';
 import { Campanha, LogEnvio, StatusCampanha } from '../index';
 import MensagemSender, { ConfiguracaoEnvio } from '@/utils/mensagemSender';
 import WebSocketManager, { ProgressoCampanha } from '@/lib/websocketServer';
+import { 
+  devePararCampanha, 
+  getStatusControle, 
+  registrarCampanhaAtiva, 
+  limparControleCampanha 
+} from './controle';
 
 // Configurações do sistema de envio
 const CONFIG_ENVIO = {
@@ -16,7 +22,7 @@ const CONFIG_ENVIO = {
 
 type ProgressoEnvio = {
   campanhaId: string;
-  status: 'iniciando' | 'criando-variacoes' | 'processando' | 'finalizando' | 'concluida' | 'erro';
+  status: 'iniciando' | 'criando-variacoes' | 'processando' | 'finalizando' | 'concluida' | 'erro' | 'pausada' | 'cancelada';
   loteAtual: number;
   totalLotes: number;
   contatosProcessados: number;
@@ -53,9 +59,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const campanha = { id: doc.id, ...doc.data() } as Campanha;
     
+    // CORREÇÃO: Aceitar campanhas pausadas para retomada
     if (!['rascunho', 'pausada'].includes(campanha.status)) {
       return res.status(400).json({ 
-        error: `Campanha não pode ser enviada. Status atual: ${campanha.status}` 
+        error: `Campanha não pode ser enviada. Status atual: ${campanha.status}`,
+        details: `Apenas campanhas com status 'rascunho' ou 'pausada' podem ser iniciadas/retomadas.`
       });
     }
 
@@ -69,6 +77,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         error: 'Não há contatos pendentes para envio' 
       });
     }
+
+    console.log(`[${id}] INICIAR/RETOMAR ENVIO: ${contatosPendentes.length} contatos pendentes`);
 
     // Buscar tokens necessários
     const { tokenInstancia, clientToken } = await buscarTokens(cliente, idInstancia);
@@ -117,6 +127,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       tokenInstancia,
       clientToken,
       campanhaRef,
+      cliente,
       idInstancia,
       progresso
     ).catch(error => {
@@ -138,11 +149,15 @@ async function processarCampanhaCompleta(
   tokenInstancia: string,
   clientToken: string,
   campanhaRef: any,
+  cliente: string,
   idInstancia: string,
   progresso: ProgressoEnvio
 ) {
   const campanhaId = campanha.id!;
   const wsManager = WebSocketManager.getInstance();
+  
+  // Registrar campanha como ativa no sistema de controle
+  registrarCampanhaAtiva(campanhaId, cliente, idInstancia);
   
   try {
     // PASSO 1: Criar variações da mensagem
@@ -154,6 +169,13 @@ async function processarCampanhaCompleta(
     
     console.log(`[${campanhaId}] Criando variações da mensagem...`);
     await criarVariacoesMensagem(campanha, campanhaRef);
+
+    // Verificar se foi pausada/cancelada durante a criação de variações
+    if (await devePararCampanha(campanhaId, cliente, idInstancia)) {
+      const statusControle = getStatusControle(campanhaId);
+      console.log(`[${campanhaId}] Campanha ${statusControle} durante criação de variações`);
+      return;
+    }
 
     // CORREÇÃO: Buscar campanha atualizada CORRETAMENTE
     const campanhaDoc = await campanhaRef.get();
@@ -192,6 +214,42 @@ async function processarCampanhaCompleta(
     });
 
     for (let i = 0; i < lotes.length; i++) {
+      // VERIFICAÇÃO CRÍTICA: Checar se deve parar antes de cada lote
+      if (await devePararCampanha(campanhaId, cliente, idInstancia)) {
+        const statusControle = getStatusControle(campanhaId);
+        console.log(`[${campanhaId}] 🛑 INTERROMPENDO NO LOTE ${i + 1}/${lotes.length} - STATUS: ${statusControle}`);
+        
+        if (statusControle === 'pausada') {
+          progresso.status = 'pausada';
+          progresso.mensagemStatus = `Campanha pausada no lote ${i + 1}/${lotes.length}`;
+          emitirProgresso(wsManager, progresso);
+          
+          // CORREÇÃO: Atualizar status no banco como pausada
+          await campanhaRef.update({
+            status: 'pausada' as StatusCampanha,
+            ultimaAtualizacao: Date.now()
+          });
+          
+          console.log(`[${campanhaId}] ✅ Campanha pausada e salva no banco`);
+          
+          // Não limpar do cache, manter para poder retomar
+          return;
+        } else if (statusControle === 'cancelada') {
+          progresso.status = 'cancelada';
+          progresso.mensagemStatus = 'Campanha cancelada pelo usuário';
+          emitirProgresso(wsManager, progresso);
+          
+          // Marcar como cancelada no banco
+          await campanhaRef.update({
+            status: 'cancelada' as StatusCampanha,
+            dataConclusao: Date.now()
+          });
+          
+          limparControleCampanha(campanhaId, cliente, idInstancia);
+          return;
+        }
+      }
+
       const loteAtual = lotes[i];
       progresso.loteAtual = i + 1;
       progresso.ultimaAtualizacao = Date.now();
@@ -199,22 +257,73 @@ async function processarCampanhaCompleta(
       console.log(`[${campanhaId}] Processando lote ${i + 1}/${lotes.length} (${loteAtual.length} contatos)...`);
 
       // CORREÇÃO: Passar a campanha com variações corretas
-      const resultadosLote = await processarLote(loteAtual, campanhaAtualizada, sender, progresso, wsManager);
+      const resultadosLote = await processarLote(loteAtual, campanhaAtualizada, sender, progresso, wsManager, campanhaId, cliente, idInstancia);
+
+      // Verificar se foi pausada/cancelada durante o lote
+      if (await devePararCampanha(campanhaId, cliente, idInstancia)) {
+        const statusControle = getStatusControle(campanhaId);
+        console.log(`[${campanhaId}] 🛑 INTERROMPENDO APÓS LOTE ${i + 1} - STATUS: ${statusControle}`);
+        
+        // Salvar logs do lote atual antes de parar
+        await atualizarLogsCampanha(campanhaRef, resultadosLote.logs);
+        
+        if (statusControle === 'pausada') {
+          // Garantir que está pausada no banco
+          await campanhaRef.update({
+            status: 'pausada' as StatusCampanha,
+            ultimaAtualizacao: Date.now()
+          });
+          console.log(`[${campanhaId}] ✅ Status pausada confirmado no banco após lote`);
+          return; // Sair sem limpar cache
+        } else if (statusControle === 'cancelada') {
+          await campanhaRef.update({
+            status: 'cancelada' as StatusCampanha,
+            dataConclusao: Date.now()
+          });
+          limparControleCampanha(campanhaId, cliente, idInstancia);
+          return;
+        }
+      }
 
       // Atualizar logs no banco após cada lote (com logs completos)
       await atualizarLogsCampanha(campanhaRef, resultadosLote.logs);
 
       console.log(`[${campanhaId}] Lote ${i + 1} concluído: ${resultadosLote.sucessos} sucessos, ${resultadosLote.erros} erros`);
 
-      // Delay entre lotes (exceto no último)
+      // Delay entre lotes (exceto no último) - com verificações de parada
       if (i < lotes.length - 1) {
         const delaySegundos = CONFIG_ENVIO.DELAY_ENTRE_LOTES / 1000;
         console.log(`[${campanhaId}] Aguardando ${delaySegundos}s antes do próximo lote...`);
-        await delay(CONFIG_ENVIO.DELAY_ENTRE_LOTES);
+        
+        // Delay com verificações periódicas (a cada segundo)
+        for (let delayElapsed = 0; delayElapsed < CONFIG_ENVIO.DELAY_ENTRE_LOTES; delayElapsed += 1000) {
+          if (await devePararCampanha(campanhaId, cliente, idInstancia)) {
+            const statusControle = getStatusControle(campanhaId);
+            console.log(`[${campanhaId}] 🛑 INTERROMPENDO DURANTE DELAY - STATUS: ${statusControle}`);
+            
+            if (statusControle === 'pausada') {
+              // Atualizar status no banco
+              await campanhaRef.update({
+                status: 'pausada' as StatusCampanha,
+                ultimaAtualizacao: Date.now()
+              });
+              console.log(`[${campanhaId}] ✅ Status pausada confirmado no banco durante delay`);
+              return;
+            } else if (statusControle === 'cancelada') {
+              await campanhaRef.update({
+                status: 'cancelada' as StatusCampanha,
+                dataConclusao: Date.now()
+              });
+              limparControleCampanha(campanhaId, cliente, idInstancia);
+              return;
+            }
+          }
+          await delay(Math.min(1000, CONFIG_ENVIO.DELAY_ENTRE_LOTES - delayElapsed));
+        }
       }
     }
 
-    // PASSO 3: Finalizar campanha
+    // PASSO 3: Finalizar campanha (só chega aqui se não foi pausada/cancelada)
     progresso.status = 'finalizando';
     progresso.mensagemStatus = 'Finalizando campanha...';
     progresso.ultimaAtualizacao = Date.now();
@@ -234,6 +343,9 @@ async function processarCampanhaCompleta(
 
     console.log(`[${campanhaId}] Campanha concluída com sucesso! Total: ${progresso.sucessos} sucessos, ${progresso.erros} erros`);
 
+    // Limpar do cache de controle
+    limparControleCampanha(campanhaId, cliente, idInstancia);
+
   } catch (error) {
     console.error(`[${campanhaId}] Erro no processamento:`, error);
     
@@ -248,6 +360,9 @@ async function processarCampanhaCompleta(
       status: 'cancelada' as StatusCampanha,
       dataConclusao: Date.now()
     });
+    
+    // Limpar do cache de controle
+    limparControleCampanha(campanhaId, cliente, idInstancia);
   }
 }
 
@@ -256,7 +371,10 @@ async function processarLote(
   campanha: Campanha,
   sender: MensagemSender,
   progresso: ProgressoEnvio,
-  wsManager: WebSocketManager
+  wsManager: WebSocketManager,
+  campanhaId: string,
+  cliente: string,
+  idInstancia: string
 ) {
   const resultados = {
     sucessos: 0,
@@ -286,6 +404,31 @@ async function processarLote(
   console.log(`[${campanha.id}] Iniciando lote ${tipoMensagem} com ${variacoes.length} variações disponíveis`);
 
   for (let i = 0; i < lote.length; i++) {
+    // VERIFICAÇÃO CRÍTICA: Checar antes de cada mensagem - VERSÃO ASSÍNCRONA
+    if (await devePararCampanha(campanhaId, cliente, idInstancia)) {
+      const statusControle = getStatusControle(campanhaId);
+      console.log(`[${campanhaId}] 🛑 INTERROMPENDO NA MENSAGEM ${i + 1}/${lote.length} - STATUS: ${statusControle}`);
+      
+      // CORREÇÃO: Atualizar progresso para pausada antes de sair
+      if (statusControle === 'pausada') {
+        progresso.status = 'pausada';
+        progresso.mensagemStatus = `Pausada na mensagem ${i + 1} do lote ${progresso.loteAtual}`;
+        emitirProgresso(wsManager, progresso);
+        
+        // Atualizar status no banco imediatamente
+        const campanhaPath = `/empresas/${cliente}/produtos/zcampanha/instancias/${idInstancia}/campanhas`;
+        const campanhaRef = dbAdmin.collection(campanhaPath).doc(campanhaId);
+        await campanhaRef.update({
+          status: 'pausada' as StatusCampanha,
+          ultimaAtualizacao: Date.now()
+        });
+        
+        console.log(`[${campanhaId}] Status atualizado para PAUSADA no banco durante processamento`);
+      }
+      
+      break; // Sair do loop de mensagens
+    }
+
     const contato = lote[i];
     const inicioEnvio = Date.now();
     
@@ -373,15 +516,24 @@ async function processarLote(
     emitirProgresso(wsManager, progresso);
     
     // ATUALIZAR TAMBÉM NO BANCO IMEDIATAMENTE para polling
-    await atualizarEstatisticasEmTempRoeal(campanha.id!, progresso);
+    await atualizarEstatisticasEmTempRoeal(campanhaId, progresso, cliente, idInstancia);
 
     console.log(`[${campanha.id}] Progresso atualizado: ${progresso.contatosProcessados}/${progresso.totalContatos} (${(progresso.contatosProcessados / progresso.totalContatos * 100).toFixed(1)}%)`);
 
-    // Delay entre mensagens dentro do lote
+    // Delay entre mensagens dentro do lote - com verificação ASSÍNCRONA
     if (i < lote.length - 1) {
       const delayAleatorio = gerarDelayAleatorio();
       console.log(`[${campanha.id}] Aguardando ${delayAleatorio}ms antes da próxima mensagem...`);
-      await delay(delayAleatorio);
+      
+      // Verificar durante o delay se deve parar
+      const delayStep = 500; // Verificar a cada 500ms
+      for (let elapsed = 0; elapsed < delayAleatorio; elapsed += delayStep) {
+        if (await devePararCampanha(campanhaId, cliente, idInstancia)) {
+          console.log(`[${campanha.id}] 🛑 INTERROMPENDO DURANTE DELAY ENTRE MENSAGENS`);
+          break;
+        }
+        await delay(Math.min(delayStep, delayAleatorio - elapsed));
+      }
     }
   }
 
@@ -389,10 +541,8 @@ async function processarLote(
 }
 
 // Nova função para atualizar estatísticas em tempo real no banco
-async function atualizarEstatisticasEmTempRoeal(campanhaId: string, progresso: ProgressoEnvio) {
+async function atualizarEstatisticasEmTempRoeal(campanhaId: string, progresso: ProgressoEnvio, cliente: string, idInstancia: string) {
   try {
-    // Usando o path da campanha para atualizar diretamente
-    const { cliente, idInstancia } = extrairParametrosDoCampanhaId(campanhaId);
     const campanhaPath = `/empresas/${cliente}/produtos/zcampanha/instancias/${idInstancia}/campanhas`;
     const campanhaRef = dbAdmin.collection(campanhaPath).doc(campanhaId);
     
@@ -415,14 +565,6 @@ async function atualizarEstatisticasEmTempRoeal(campanhaId: string, progresso: P
   } catch (error) {
     console.error(`[${campanhaId}] Erro ao atualizar estatísticas em tempo real:`, error);
   }
-}
-
-// Função auxiliar para extrair parâmetros do ID da campanha
-function extrairParametrosDoCampanhaId(campanhaId: string): { cliente: string; idInstancia: string } {
-  // Esta é uma implementação simplificada
-  // Em um cenário real, você poderia armazenar esses parâmetros no contexto ou cache
-  // Por agora, vamos usar uma abordagem alternativa
-  return { cliente: 'epik', idInstancia: '3DB416777CAE50403F51DA9FF2413145' }; // TEMPORÁRIO
 }
 
 function obterConteudoComVariacao(conteudoOriginal: any, variacoes: string[], indiceNoLote: number, indiceGlobal: number) {
@@ -625,22 +767,70 @@ async function atualizarLogsCampanha(campanhaRef: any, logs: LogEnvio[]) {
 async function finalizarCampanha(campanhaRef: any, progresso: ProgressoEnvio) {
   const agora = Date.now();
   
-  progresso.status = 'concluida';
-  progresso.mensagemStatus = `Campanha finalizada! ${progresso.sucessos} sucessos, ${progresso.erros} erros`;
+  // CORREÇÃO: Verificar se REALMENTE deve finalizar como concluída
+  const campanhaDoc = await campanhaRef.get();
+  const campanhaAtual = campanhaDoc.data() as Campanha;
+  
+  // Calcular estatísticas finais
+  const logsPendentes = campanhaAtual.logs.filter(log => 
+    log.status === 'pendente' || (log.status === 'erro' && log.tentativas < CONFIG_ENVIO.MAX_TENTATIVAS_CONTATO)
+  );
+  
+  const statusFinal: StatusCampanha = logsPendentes.length === 0 ? 'concluida' : 'pausada';
+  
+  console.log(`[${progresso.campanhaId}] FINALIZANDO: ${logsPendentes.length} contatos pendentes restantes`);
+  console.log(`[${progresso.campanhaId}] STATUS FINAL: ${statusFinal}`);
+  
+  progresso.status = statusFinal;
+  progresso.mensagemStatus = statusFinal === 'concluida' 
+    ? `Campanha finalizada! ${progresso.sucessos} sucessos, ${progresso.erros} erros`
+    : `Campanha pausada com ${logsPendentes.length} contatos pendentes`;
   progresso.ultimaAtualizacao = agora;
 
-  await campanhaRef.update({
-    status: 'concluida' as StatusCampanha,
-    dataConclusao: agora
-  });
+  const updateData: any = {
+    status: statusFinal,
+    ultimaAtualizacao: agora
+  };
+
+  // Só marcar como concluída se realmente não há pendências
+  if (statusFinal === 'concluida') {
+    updateData.dataConclusao = agora;
+  }
+
+  await campanhaRef.update(updateData);
+  
+  console.log(`[${progresso.campanhaId}] Campanha finalizada com status: ${statusFinal}`);
 }
 
 function emitirProgresso(wsManager: WebSocketManager, progresso: ProgressoEnvio) {
+  // Map ProgressoEnvio to ProgressoCampanha with compatible status types
+  const statusMapping: Record<ProgressoEnvio['status'], ProgressoCampanha['status']> = {
+    'iniciando': 'iniciando',
+    'criando-variacoes': 'criando-variacoes', 
+    'processando': 'processando',
+    'finalizando': 'finalizando',
+    'concluida': 'concluida',
+    'erro': 'erro',
+    'pausada': 'processando', // Map pausada to processando for WebSocket compatibility
+    'cancelada': 'erro' // Map cancelada to erro for WebSocket compatibility
+  };
+
   const progressoWS: ProgressoCampanha = {
-    ...progresso,
+    campanhaId: progresso.campanhaId,
+    status: statusMapping[progresso.status],
+    loteAtual: progresso.loteAtual,
+    totalLotes: progresso.totalLotes,
+    contatosProcessados: progresso.contatosProcessados,
+    totalContatos: progresso.totalContatos,
+    sucessos: progresso.sucessos,
+    erros: progresso.erros,
+    iniciadoEm: progresso.iniciadoEm,
+    ultimaAtualizacao: progresso.ultimaAtualizacao,
     percentualConcluido: progresso.totalContatos > 0 
       ? (progresso.contatosProcessados / progresso.totalContatos) * 100 
-      : 0
+      : 0,
+    estimativaTermino: progresso.estimativaTermino,
+    mensagemStatus: progresso.mensagemStatus
   };
   
   wsManager.emitirProgressoCampanha(progressoWS);

@@ -4,6 +4,7 @@ import { FiPlus, FiSearch, FiEdit2, FiTrash2, FiUsers, FiX, FiCheck, FiChevronLe
 import Erro from '@/components/Erro';
 import Aviso from '@/components/Aviso';
 import Confirmacao from '@/components/Confirmacao';
+import { withZCampanhaAuth } from '@/components/zcampanha/withZCampanhaAuth';
 
 type GrupoContatos = {
   id?: string;
@@ -1350,4 +1351,4 @@ const GruposPage = () => {
   );
 };
 
-export default GruposPage;
+export default withZCampanhaAuth(GruposPage);
