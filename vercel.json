@@ -1,7 +1,7 @@
 {
   "functions": {
     "src/pages/api/zcampanha/[cliente]/instancias/[idInstancia]/campanhas/[id]/iniciar-envio.ts": {
-      "maxDuration": 3000
+      "maxDuration": 900
     }
   },
   "crons": []
