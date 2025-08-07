@@ -11,7 +11,8 @@ import * as Type from '@/types/Campanha';
 import { CampanhaCard } from '@/components/zcampanha/campanhas/CampanhaCard';
 import CampanhaForm from '@/components/zcampanha/campanhas/CampanhaForm';
 import ModaisSelecao from '@/components/zcampanha/campanhas/ModaisSelecao';
-import CampanhaDetalhes from '@/components/zcampanha/campanhas/CampanhaDetalhes';
+import { Instancia } from '@/types/instancia';
+// import CampanhaDetalhes from '@/components/zcampanha/campanhas/CampanhaDetalhes';
 
 const CampanhasPage = () => {
   const router = useRouter();
@@ -161,7 +162,7 @@ const CampanhasPage = () => {
       const response = await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/campanhas`);
       const data = await response.json();
       setCampanhas(data.campanhas || []);
-    } catch (error) {
+    } catch {
       setErro('Erro ao carregar campanhas');
     }
     setLoading(false);
@@ -211,7 +212,7 @@ const CampanhasPage = () => {
         .then(res => res.json())
         .then((data) => {
           if (data.instancias) {
-            const instance = data.instancias.find((inst: any) => inst.idInstancia === idInstancia);
+            const instance = data.instancias.find((inst: Instancia) => inst.idInstancia === idInstancia);
             if (instance) {
               setInstanceData({ nome: instance.nome, numero: instance.numero });
             }
@@ -376,12 +377,11 @@ const CampanhasPage = () => {
     }
 
     // Construir objeto da campanha
-    const dadosCampanha: any = {
-      id: campanhaEmEdicao?.id, // Inclui o ID se estiver editando
+    const dadosCampanha: Partial<Type.Campanha> = {
+      id: campanhaEmEdicao?.id,
       nome,
       conteudo,
-      contatos: contatosSelecionados,
-      criadoPor: 'usuário'
+      contatos: contatosSelecionados
     };
 
     // Adicionar descrição apenas se não estiver vazia
@@ -408,7 +408,7 @@ const CampanhasPage = () => {
         const data = await response.json();
         setErro(data.error || `Erro ao ${isEditing ? 'atualizar' : 'criar'} campanha`);
       }
-    } catch (error) {
+    } catch {
       setErro(`Erro de conexão ao ${isEditing ? 'atualizar' : 'criar'} campanha`);
     }
   };
@@ -451,7 +451,7 @@ const CampanhasPage = () => {
         body: JSON.stringify({ id })
       });
       fetchCampanhas();
-    } catch (error) {
+    } catch {
       setErro('Erro ao deletar campanha');
     }
   };
@@ -584,7 +584,7 @@ const CampanhasPage = () => {
       } else {
         setErro(data.error || 'Erro ao pausar campanha');
       }
-    } catch (error) {
+    } catch {
       setErro('Erro de conexão ao pausar campanha');
     } finally {
       setPausandoCampanha(null);
@@ -635,7 +635,7 @@ const CampanhasPage = () => {
       } else {
         setErro(data.error || 'Erro ao retomar campanha');
       }
-    } catch (error) {
+    } catch {
       setErro('Erro de conexão ao retomar campanha');
     } finally {
       setEnviandoCampanha(null);
@@ -692,7 +692,7 @@ const CampanhasPage = () => {
       } else {
         setErro(data.error || 'Erro ao cancelar campanha');
       }
-    } catch (error) {
+    } catch {
       setErro('Erro de conexão ao cancelar campanha');
     } finally {
       setCancelandoCampanha(null);
@@ -752,63 +752,6 @@ const CampanhasPage = () => {
     }
   };
 
-  // Filtrar e ordenar contatos no modal
-  const contatosFiltradosOrdenados = useMemo(() => {
-    let resultado = [...contatos];
-    
-    // Filtrar por busca se houver termo
-    if (buscaContatos.trim()) {
-      const termoBusca = buscaContatos.toLowerCase().trim();
-      resultado = resultado.filter(contato => 
-        contato.nome.toLowerCase().includes(termoBusca) ||
-        contato.numero.includes(termoBusca)
-      );
-    }
-    
-    // Ordenar alfabeticamente por nome
-    return resultado.sort((a, b) => 
-      a.nome.toLowerCase().localeCompare(b.nome.toLowerCase())
-    );
-  }, [contatos, buscaContatos]);
-
-  // Verificar se todos os contatos filtrados estão selecionados
-  const todosSelecionados = useMemo(() => {
-    if (contatosFiltradosOrdenados.length === 0) return false;
-    return contatosFiltradosOrdenados.every(contato => 
-      contatosSelecionados.some(selecionado => selecionado.id === contato.id)
-    );
-  }, [contatosFiltradosOrdenados, contatosSelecionados]);
-
-  // Verificar se alguns contatos filtrados estão selecionados
-  const algunsSelecionados = useMemo(() => {
-    return contatosFiltradosOrdenados.some(contato => 
-      contatosSelecionados.some(selecionado => selecionado.id === contato.id)
-    );
-  }, [contatosFiltradosOrdenados, contatosSelecionados]);
-
-  // Função para marcar/desmarcar todos os contatos filtrados
-  const toggleTodosContatos = () => {
-    if (todosSelecionados) {
-      // Desmarcar todos os contatos filtrados
-      const idsParaRemover = new Set(contatosFiltradosOrdenados.map(c => c.id));
-      setContatosSelecionados(prev => 
-        prev.filter(contato => !idsParaRemover.has(contato.id))
-      );
-    } else {
-      // Marcar todos os contatos filtrados que ainda não estão selecionados
-      const novosContatos = contatosFiltradosOrdenados.filter(contato =>
-        !contatosSelecionados.some(selecionado => selecionado.id === contato.id)
-      );
-      setContatosSelecionados(prev => [...prev, ...novosContatos]);
-    }
-  };
-
-  // Função para limpar busca quando modal for fechado
-  const fecharModalContatos = () => {
-    setModalContatos(false);
-    setBuscaContatos('');
-  };
-
   // Função para inserir variável no campo de texto principal
   const inserirVariavelTexto = (variavel: string) => {
     inserirVariavel(variavel, 'texto-mensagem', setTextoMensagem, () => setMostrarVariaveisTexto(false));
@@ -847,49 +790,6 @@ const CampanhasPage = () => {
         return `<span class="variavel-invalida">${match}</span>`;
       }
     });
-  };
-
-  // Componente de menu de variáveis reutilizável
-  const MenuVariaveis = ({ mostrar, onInserir, onFechar }: { 
-    mostrar: boolean, 
-    onInserir: (variavel: string) => void,
-    onFechar: () => void 
-  }) => {
-    if (!mostrar) return null;
-    
-    return (
-      <div className="variaveis-menu">
-        <div className="variaveis-header">
-          <span className="variaveis-titulo">Inserir Variável</span>
-          <span className="variaveis-subtitulo">Clique para adicionar</span>
-        </div>
-        <div className="variaveis-lista">
-          <button
-            type="button"
-            className="variavel-item"
-            onClick={() => onInserir('$nome')}
-          >
-            <div className="variavel-preview">
-              <span className="variavel-tag">$nome</span>
-              <span className="variavel-exemplo">João Silva</span>
-            </div>
-            <span className="variavel-desc">Nome completo do contato</span>
-          </button>
-          <button
-            type="button"
-            className="variavel-item"
-            onClick={() => onInserir('$primeiroNome')}
-          >
-            <div className="variavel-preview">
-              <span className="variavel-tag">$primeiroNome</span>
-              <span className="variavel-exemplo">João</span>
-            </div>
-            <span className="variavel-desc">Primeiro nome do contato</span>
-          </button>
-        </div>
-        <div className="variaveis-overlay" onClick={onFechar}></div>
-      </div>
-    );
   };
 
   // Filtrar logs no modal de detalhes
@@ -942,7 +842,12 @@ const CampanhasPage = () => {
 
     // Calcular progresso
     let percentual = 0;
-    let dadosProgresso: any = null;
+    let dadosProgresso: {
+      id: string;
+      status: Type.StatusCampanha;
+      estatisticas: Type.EstatisticasCampanha;
+      ultimaAtualizacao: number;
+    } | null = null;
 
     if (campanhaAtual.estatisticas.totalContatos > 0) {
       percentual = (campanhaAtual.estatisticas.enviados / campanhaAtual.estatisticas.totalContatos) * 100;
@@ -957,7 +862,7 @@ const CampanhasPage = () => {
     } else {
       // Usar dados da campanha local
       dadosProgresso = {
-        id: campanhaAtual.id,
+        id: campanhaAtual.id || '',
         status: campanhaAtual.status,
         estatisticas: campanhaAtual.estatisticas,
         ultimaAtualizacao: Date.now()
@@ -1684,7 +1589,7 @@ const CampanhasPage = () => {
                       </div>
                       <select
                         value={filtroStatusLog}
-                        onChange={e => setFiltroStatusLog(e.target.value as any)}
+                        onChange={e => setFiltroStatusLog(e.target.value as 'sucesso' | 'erro' | '')}
                         className="filtro-status"
                       >
                         <option value="">Todos os Status</option>

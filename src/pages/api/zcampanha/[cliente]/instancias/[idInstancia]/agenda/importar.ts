@@ -22,6 +22,12 @@ type ResultadoValidacao = {
   contato?: ContatoImportacao;
 };
 
+interface FileField {
+  filepath: string;
+  originalFilename: string;
+  mimetype: string;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método não permitido' });
@@ -39,20 +45,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     // Parse do arquivo enviado
     const form = formidable({
-      maxFileSize: 10 * 1024 * 1024, // 10MB
+      multiples: true,
+      uploadDir: '/tmp',
       filter: (part) => {
-        return part.name === 'arquivo' && (
+        return part.name === 'arquivo' && Boolean(
           part.mimetype?.includes('spreadsheet') ||
           part.mimetype?.includes('excel') ||
           part.mimetype?.includes('csv') ||
-          (part as any).originalFilename?.endsWith('.xlsx') ||
-          (part as any).originalFilename?.endsWith('.xls') ||
-          (part as any).originalFilename?.endsWith('.csv')
+          part.originalFilename?.endsWith('.xlsx') ||
+          part.originalFilename?.endsWith('.xls') ||
+          part.originalFilename?.endsWith('.csv')
         );
       }
     });
 
-    const [fields, files] = await form.parse(req);
+    const [, files] = await form.parse(req);
     const arquivo = Array.isArray(files.arquivo) ? files.arquivo[0] : files.arquivo;
 
     if (!arquivo) {
@@ -60,7 +67,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Ler e processar arquivo
-    const contatos = await processarArquivo(arquivo.filepath, (arquivo as any).originalFilename || '');
+    const contatos = await processarArquivo(arquivo.filepath, (arquivo as FileField).originalFilename || '');
     
     // Validar contatos
     const resultadosValidacao = await validarContatos(contatos, colRef);
@@ -75,7 +82,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .map(r => ({ linha: r.contato?.linha || 0, erros: r.erros }));
 
     // Inserir contatos válidos no banco
-    const contatosInseridos = [];
+    const contatosInseridos: Array<{
+      id: string;
+      nome: string;
+      numero: string;
+      linha: number;
+    }> = [];
     for (const contato of contatosValidos) {
       try {
         const docRef = await colRef.add({
@@ -88,7 +100,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           numero: contato.numero,
           linha: contato.linha
         });
-      } catch (error) {
+      } catch {
         errosValidacao.push({
           linha: contato.linha,
           erros: ['Erro ao salvar no banco de dados']
@@ -136,13 +148,13 @@ async function processarArquivo(caminho: string, nomeArquivo: string): Promise<C
     const sheet = workbook.Sheets[sheetName];
     
     // Converter para JSON
-    const dados = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+    const dados = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as unknown[][];
     
     // Pular cabeçalho se existir
     let inicioLinha = 0;
     if (dados.length > 0) {
       const primeiraLinha = dados[0];
-      const contemCabecalho = primeiraLinha.some((cell: any) => 
+      const contemCabecalho = primeiraLinha.some((cell: unknown) => 
         typeof cell === 'string' && 
         (cell.toLowerCase().includes('nome') || cell.toLowerCase().includes('numero'))
       );
@@ -178,14 +190,14 @@ async function processarArquivo(caminho: string, nomeArquivo: string): Promise<C
 
 async function validarContatos(
   contatos: ContatoImportacao[], 
-  colRef: any
+  colRef: FirebaseFirestore.CollectionReference
 ): Promise<ResultadoValidacao[]> {
   const resultados: ResultadoValidacao[] = [];
   
   // Buscar números existentes
   const numerosExistentes = new Set<string>();
   const snapExistentes = await colRef.get();
-  snapExistentes.docs.forEach((doc: any) => {
+  snapExistentes.docs.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
     const data = doc.data();
     if (data.numero) {
       numerosExistentes.add(limparNumero(data.numero));

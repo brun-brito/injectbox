@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { dbAdmin } from '@/lib/firebaseAdmin';
 import { Campanha, LogEnvio, StatusCampanha } from '../index';
-import MensagemSender, { ConfiguracaoEnvio } from '@/utils/mensagemSender';
+import MensagemSender from '@/utils/mensagemSender';
 import WebSocketManager, { ProgressoCampanha } from '@/lib/websocketServer';
 import { 
   devePararCampanha, 
@@ -9,6 +9,9 @@ import {
   registrarCampanhaAtiva, 
   limparControleCampanha 
 } from './controle';
+import { FirebaseDocRef } from '@/types/firebase';
+import { ConteudoComVariacao } from '@/types/api';
+import { ConteudoMensagem } from '../index';
 
 // Configurações do sistema de envio
 const CONFIG_ENVIO = {
@@ -148,7 +151,7 @@ async function processarCampanhaCompleta(
   contatosPendentes: LogEnvio[],
   tokenInstancia: string,
   clientToken: string,
-  campanhaRef: any,
+  campanhaRef: FirebaseDocRef,
   cliente: string,
   idInstancia: string,
   progresso: ProgressoEnvio
@@ -393,7 +396,7 @@ async function processarLote(
     case 'imagem':
       // Para imagens, usar variações da legenda se existirem
       if (campanha.conteudo.legenda) {
-        variacoes = (campanha.conteudo as any).variacoesLegenda || [campanha.conteudo.legenda];
+        variacoes = campanha.conteudo.variacoesLegenda || [campanha.conteudo.legenda];
       }
       break;
     case 'botoes':
@@ -456,15 +459,16 @@ async function processarLote(
         case 'texto':
         case 'botoes':
           logVariacao = variacaoInfo 
-            ? `variação ${variacaoInfo.indice}: "${variacaoInfo.conteudo.substring(0, 50)}..."` 
-            : `texto original: "${conteudoParaEnvio.texto?.substring(0, 50)}..."`;
+            ? `variação ${variacaoInfo.indice}: "${typeof variacaoInfo.conteudo === 'string' ? variacaoInfo.conteudo.substring(0, 50) : String(variacaoInfo.conteudo).substring(0, 50)}..."` 
+            : `texto original: "${typeof conteudoParaEnvio.texto === 'string' ? conteudoParaEnvio.texto.substring(0, 50) : String(conteudoParaEnvio.texto || '').substring(0, 50)}..."`;
           break;
         case 'imagem':
           if (variacaoInfo) {
-            logVariacao = `legenda variação ${variacaoInfo.indice}: "${variacaoInfo.conteudo.substring(0, 50)}..."`;
+            logVariacao = `legenda variação ${variacaoInfo.indice}: "${typeof variacaoInfo.conteudo === 'string' ? variacaoInfo.conteudo.substring(0, 50) : String(variacaoInfo.conteudo).substring(0, 50)}..."`;
           } else {
-            logVariacao = conteudoParaEnvio.legenda 
-              ? `legenda original: "${conteudoParaEnvio.legenda.substring(0, 50)}..."` 
+            const legenda = conteudoParaEnvio.legenda;
+            logVariacao = typeof legenda === 'string' && legenda
+              ? `legenda original: "${legenda.substring(0, 50)}..."` 
               : 'sem legenda';
           }
           break;
@@ -473,7 +477,7 @@ async function processarLote(
       console.log(`[${campanha.id}] Contato ${i + 1} (${contato.nomeContato}): Usando ${logVariacao}`);
       
       // Enviar mensagem
-      const resultado = await sender.enviarMensagem(contato, conteudoParaEnvio);
+      const resultado = await sender.enviarMensagem(contato, conteudoParaEnvio as ConteudoMensagem);
 
       const fimEnvio = Date.now();
       contato.tempoResposta = fimEnvio - inicioEnvio;
@@ -540,7 +544,6 @@ async function processarLote(
   return resultados;
 }
 
-// Nova função para atualizar estatísticas em tempo real no banco
 async function atualizarEstatisticasEmTempRoeal(campanhaId: string, progresso: ProgressoEnvio, cliente: string, idInstancia: string) {
   try {
     const campanhaPath = `/empresas/${cliente}/produtos/zcampanha/instancias/${idInstancia}/campanhas`;
@@ -567,12 +570,17 @@ async function atualizarEstatisticasEmTempRoeal(campanhaId: string, progresso: P
   }
 }
 
-function obterConteudoComVariacao(conteudoOriginal: any, variacoes: string[], indiceNoLote: number, indiceGlobal: number) {
+function obterConteudoComVariacao(
+  conteudoOriginal: Record<string, unknown>, 
+  variacoes: string[], 
+  indiceNoLote: number, 
+  indiceGlobal: number
+): ConteudoComVariacao {
   const tipoMensagem = conteudoOriginal.tipo;
   
   // Para mensagens de texto
   if (tipoMensagem === 'texto') {
-    if (!variacoes || variacoes.length === 0) {
+    if (!Array.isArray(variacoes) || variacoes.length === 0) {
       console.log(`[DEBUG] Texto sem variações disponíveis`);
       return { conteudo: conteudoOriginal, variacaoInfo: null };
     }
@@ -580,7 +588,7 @@ function obterConteudoComVariacao(conteudoOriginal: any, variacoes: string[], in
     const indiceVariacao = obterIndiceVariacaoAleatoria(variacoes.length, indiceGlobal);
     const textoVariado = variacoes[indiceVariacao];
 
-    console.log(`[DEBUG] Texto - Variação ${indiceVariacao}: "${textoVariado?.substring(0, 30)}..."`);
+    console.log(`[DEBUG] Texto - Variação ${indiceVariacao}: "${typeof textoVariado === 'string' ? textoVariado.substring(0, 30) : String(textoVariado).substring(0, 30)}..."`);
 
     return {
       conteudo: {
@@ -589,7 +597,7 @@ function obterConteudoComVariacao(conteudoOriginal: any, variacoes: string[], in
       },
       variacaoInfo: {
         indice: indiceVariacao,
-        conteudo: textoVariado,
+        conteudo: textoVariado || '',
         tipo: 'texto' as const
       }
     };
@@ -597,13 +605,15 @@ function obterConteudoComVariacao(conteudoOriginal: any, variacoes: string[], in
   
   // Para mensagens de imagem com legenda
   if (tipoMensagem === 'imagem' && conteudoOriginal.legenda) {
-    const variacoesLegenda = conteudoOriginal.variacoesLegenda || [conteudoOriginal.legenda];
+    const variacoesLegenda = Array.isArray(conteudoOriginal.variacoesLegenda) 
+      ? conteudoOriginal.variacoesLegenda as string[]
+      : [String(conteudoOriginal.legenda)];
     
     if (variacoesLegenda.length > 1) {
       const indiceVariacao = obterIndiceVariacaoAleatoria(variacoesLegenda.length, indiceGlobal);
       const legendaVariada = variacoesLegenda[indiceVariacao];
 
-      console.log(`[DEBUG] Imagem - Legenda variação ${indiceVariacao}: "${legendaVariada?.substring(0, 30)}..."`);
+      console.log(`[DEBUG] Imagem - Legenda variação ${indiceVariacao}: "${typeof legendaVariada === 'string' ? legendaVariada.substring(0, 30) : String(legendaVariada).substring(0, 30)}..."`);
 
       return {
         conteudo: {
@@ -612,7 +622,7 @@ function obterConteudoComVariacao(conteudoOriginal: any, variacoes: string[], in
         },
         variacaoInfo: {
           indice: indiceVariacao,
-          conteudo: legendaVariada,
+          conteudo: String(legendaVariada || ''),
           tipo: 'legenda' as const
         }
       };
@@ -621,7 +631,7 @@ function obterConteudoComVariacao(conteudoOriginal: any, variacoes: string[], in
   
   // Para mensagens com botões
   if (tipoMensagem === 'botoes') {
-    if (!variacoes || variacoes.length === 0) {
+    if (!Array.isArray(variacoes) || variacoes.length === 0) {
       console.log(`[DEBUG] Botões sem variações disponíveis`);
       return { conteudo: conteudoOriginal, variacaoInfo: null };
     }
@@ -629,7 +639,7 @@ function obterConteudoComVariacao(conteudoOriginal: any, variacoes: string[], in
     const indiceVariacao = obterIndiceVariacaoAleatoria(variacoes.length, indiceGlobal);
     const textoVariado = variacoes[indiceVariacao];
 
-    console.log(`[DEBUG] Botões - Texto variação ${indiceVariacao}: "${textoVariado?.substring(0, 30)}..."`);
+    console.log(`[DEBUG] Botões - Texto variação ${indiceVariacao}: "${typeof textoVariado === 'string' ? textoVariado.substring(0, 30) : String(textoVariado).substring(0, 30)}..."`);
 
     return {
       conteudo: {
@@ -638,7 +648,7 @@ function obterConteudoComVariacao(conteudoOriginal: any, variacoes: string[], in
       },
       variacaoInfo: {
         indice: indiceVariacao,
-        conteudo: textoVariado,
+        conteudo: String(textoVariado || ''),
         tipo: 'texto' as const
       }
     };
@@ -648,6 +658,7 @@ function obterConteudoComVariacao(conteudoOriginal: any, variacoes: string[], in
   return { conteudo: conteudoOriginal, variacaoInfo: null };
 }
 
+// Funções auxiliares
 function obterIndiceVariacaoAleatoria(totalVariacoes: number, indiceContato: number): number {
   if (totalVariacoes <= 1) {
     return 0;
@@ -684,9 +695,8 @@ function obterIndiceVariacaoAleatoria(totalVariacoes: number, indiceContato: num
   return 1 + Math.floor(random * (totalVariacoes - 1));
 }
 
-// Funções auxiliares
 function dividirEmLotes<T>(array: T[], tamanhoLote: number): T[][] {
-  const lotes = [];
+  const lotes: T[][] = [];
   for (let i = 0; i < array.length; i += tamanhoLote) {
     lotes.push(array.slice(i, i + tamanhoLote));
   }
@@ -734,7 +744,7 @@ async function buscarTokens(cliente: string, idInstancia: string) {
   return { tokenInstancia, clientToken };
 }
 
-async function atualizarLogsCampanha(campanhaRef: any, logs: LogEnvio[]) {
+async function atualizarLogsCampanha(campanhaRef: FirebaseDocRef, logs: LogEnvio[]) {
   const campanhaDoc = await campanhaRef.get();
   const campanha = campanhaDoc.data() as Campanha;
   
@@ -764,7 +774,7 @@ async function atualizarLogsCampanha(campanhaRef: any, logs: LogEnvio[]) {
   });
 }
 
-async function finalizarCampanha(campanhaRef: any, progresso: ProgressoEnvio) {
+async function finalizarCampanha(campanhaRef: FirebaseDocRef, progresso: ProgressoEnvio) {
   const agora = Date.now();
   
   // CORREÇÃO: Verificar se REALMENTE deve finalizar como concluída
@@ -787,7 +797,7 @@ async function finalizarCampanha(campanhaRef: any, progresso: ProgressoEnvio) {
     : `Campanha pausada com ${logsPendentes.length} contatos pendentes`;
   progresso.ultimaAtualizacao = agora;
 
-  const updateData: any = {
+  const updateData: Record<string, unknown> = {
     status: statusFinal,
     ultimaAtualizacao: agora
   };
@@ -836,7 +846,7 @@ function emitirProgresso(wsManager: WebSocketManager, progresso: ProgressoEnvio)
   wsManager.emitirProgressoCampanha(progressoWS);
 }
 
-async function criarVariacoesMensagem(campanha: Campanha, campanhaRef: any) {
+async function criarVariacoesMensagem(campanha: Campanha, campanhaRef: FirebaseDocRef) {
   // Verificar se já existem variações
   if (campanha.conteudo.variacoes && campanha.conteudo.variacoes.length > 1) {
     console.log(`[${campanha.id}] Variações já existem, pulando criação...`);
@@ -845,7 +855,7 @@ async function criarVariacoesMensagem(campanha: Campanha, campanhaRef: any) {
 
   // Determinar qual texto usar para criar variações baseado no tipo
   let textoParaVariacao = '';
-  let tipoMensagem = campanha.conteudo.tipo;
+  const tipoMensagem = campanha.conteudo.tipo;
 
   switch (tipoMensagem) {
     case 'texto':
@@ -910,7 +920,7 @@ async function criarVariacoesMensagem(campanha: Campanha, campanhaRef: any) {
   }
 
   // Atualizar conteúdo com variações baseado no tipo de mensagem
-  let conteudoAtualizado;
+  let conteudoAtualizado: Record<string, unknown>;
   
   switch (tipoMensagem) {
     case 'texto':
@@ -946,7 +956,7 @@ async function criarVariacoesMensagem(campanha: Campanha, campanhaRef: any) {
 
 async function criarVariacoesComOpenAI(
   campanha: Campanha, 
-  campanhaRef: any, 
+  campanhaRef: FirebaseDocRef, 
   textoParaVariacao: string
 ): Promise<string[]> {
   const { cliente, idInstancia } = extrairParametrosDaRef(campanhaRef);
@@ -1036,7 +1046,7 @@ function gerarVariacoesMensagemSimples(textoOriginal: string): string[] {
         variacoes.push(variacao);
       }
     } catch (error) {
-      // Ignorar erros de transformação
+      console.error('Erro na transformação:', error);
     }
   });
 
@@ -1054,7 +1064,7 @@ function gerarVariacoesMensagemSimples(textoOriginal: string): string[] {
         variacoes.push(variacao);
       }
     } catch (error) {
-      // Ignorar erros de combinação
+      console.error('Erro: ', error);
     }
   });
 
@@ -1063,7 +1073,7 @@ function gerarVariacoesMensagemSimples(textoOriginal: string): string[] {
 }
 
 // Função auxiliar para extrair parâmetros da referência do Firestore
-function extrairParametrosDaRef(campanhaRef: any): { cliente: string; idInstancia: string } {
+function extrairParametrosDaRef(campanhaRef: FirebaseDocRef): { cliente: string; idInstancia: string } {
   // Exemplo de path: /empresas/cliente/produtos/zcampanha/instancias/idInstancia/campanhas/campanhaId
   const pathParts = campanhaRef.path.split('/');
   const cliente = pathParts[1];

@@ -26,7 +26,9 @@
       {
         "name": "next"
       }
-    ]
+    ],
+    "noImplicitAny": false,
+    "strictNullChecks": true
   },
   "include": [
     "**/*.ts",

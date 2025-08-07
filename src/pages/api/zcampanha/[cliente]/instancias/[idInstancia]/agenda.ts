@@ -35,6 +35,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     return res.status(405).json({ error: 'Método não permitido' });
   } catch (e) {
-    return res.status(500).json({ error: 'Erro ao acessar agenda' });
+    return res.status(500).json({ error: 'Erro ao acessar agenda', detail: e });
   }
 }

@@ -65,7 +65,7 @@ const ZCampanhaHome = ({ cliente }: Props) => {
       } else {
         setErro(data.error || 'Erro ao fazer login');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erro no login:', error);
       setErro('Erro de conexão. Tente novamente');
     } finally {
@@ -86,21 +86,24 @@ const ZCampanhaHome = ({ cliente }: Props) => {
     try {
       await sendPasswordResetEmail(auth, email);
       setSucesso('Email de recuperação enviado! Verifique sua caixa de entrada.');
-    } catch (error: any) {
+    } catch (error: unknown) {
       let errorMessage = 'Erro ao enviar email de recuperação';
       
-      switch (error.code) {
-        case 'auth/user-not-found':
-          errorMessage = 'Email não encontrado';
-          break;
-        case 'auth/invalid-email':
-          errorMessage = 'Email inválido';
-          break;
-        case 'auth/too-many-requests':
-          errorMessage = 'Muitas tentativas. Tente novamente mais tarde';
-          break;
-        default:
-          errorMessage = 'Erro inesperado. Tente novamente';
+      if (error && typeof error === 'object' && 'code' in error) {
+        const firebaseError = error as { code: string };
+        switch (firebaseError.code) {
+          case 'auth/user-not-found':
+            errorMessage = 'Email não encontrado';
+            break;
+          case 'auth/invalid-email':
+            errorMessage = 'Email inválido';
+            break;
+          case 'auth/too-many-requests':
+            errorMessage = 'Muitas tentativas. Tente novamente mais tarde';
+            break;
+          default:
+            errorMessage = 'Erro inesperado. Tente novamente';
+        }
       }
       
       setErro(errorMessage);

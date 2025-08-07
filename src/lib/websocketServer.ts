@@ -1,19 +1,5 @@
 import { Server as SocketIOServer } from 'socket.io';
-import { NextApiRequest } from 'next';
-import { Socket as NetSocket } from 'net';
-import { Server as HTTPServer } from 'http';
-
-interface SocketServer extends HTTPServer {
-  io?: SocketIOServer | undefined;
-}
-
-interface SocketWithIO extends NetSocket {
-  server: SocketServer;
-}
-
-interface NextApiResponseWithSocket extends NextApiRequest {
-  socket: SocketWithIO;
-}
+import { WebSocketInitParam, SocketServer, WebSocketRequest, WebSocketResponse } from '@/types/websocket';
 
 export type ProgressoCampanha = {
   campanhaId: string;
@@ -44,11 +30,29 @@ class WebSocketManager {
     return WebSocketManager.instance;
   }
 
-  initializeWebSocket(res: NextApiResponseWithSocket): SocketIOServer {
-    if (!res.socket.server.io) {
-      console.log('Inicializando WebSocket Server...');
-      
-      const io = new SocketIOServer(res.socket.server, {
+  initializeWebSocket(param: WebSocketInitParam): void {
+    let socketServer: SocketServer | undefined;
+
+    // Determine socket server from different parameter types
+    if ('req' in param && 'res' in param) {
+      // WebSocketContext
+      socketServer = (param.res as WebSocketResponse).socket?.server;
+    } else if ('method' in param) {
+      // NextApiRequest-like
+      socketServer = (param as WebSocketRequest).socket?.server;
+    } else {
+      // NextApiResponse-like
+      socketServer = (param as WebSocketResponse).socket?.server;
+    }
+
+    if (!socketServer) {
+      console.error('HTTP server not found in socket');
+      return;
+    }
+
+    if (!socketServer.io) {
+      console.log('Initializing Socket.IO server...');
+      const io = new SocketIOServer(socketServer, {
         path: '/api/socketio',
         addTrailingSlash: false,
         cors: {
@@ -58,6 +62,9 @@ class WebSocketManager {
           methods: ["GET", "POST"]
         }
       });
+
+      socketServer.io = io;
+      this.io = io;
 
       io.on('connection', (socket) => {
         console.log(`Cliente conectado: ${socket.id}`);
@@ -76,14 +83,9 @@ class WebSocketManager {
           console.log(`Cliente desconectado: ${socket.id}`);
         });
       });
-
-      res.socket.server.io = io;
-      this.io = io;
     } else {
-      this.io = res.socket.server.io;
+      this.io = socketServer.io;
     }
-
-    return this.io;
   }
 
   emitirProgressoCampanha(progresso: ProgressoCampanha) {
@@ -93,7 +95,7 @@ class WebSocketManager {
     }
   }
 
-  emitirCampanhaConcluida(campanhaId: string, estatisticas: any) {
+  emitirCampanhaConcluida(campanhaId: string, estatisticas: Record<string, unknown>) {
     if (this.io) {
       console.log(`[WebSocket] Emitindo conclusão da campanha ${campanhaId}`);
       this.io.to(`campanha-${campanhaId}`).emit('campanha-concluida', {

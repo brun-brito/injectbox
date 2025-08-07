@@ -11,7 +11,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const docRef = dbAdmin.doc(`/empresas/${cliente}/produtos/zcampanha`);
     const docSnap = await docRef.get();
     res.status(200).json({ exists: docSnap.exists, doc: docSnap.data() });
-  } catch (e) {
+  } catch {
     res.status(500).json({ exists: false });
   }
 }

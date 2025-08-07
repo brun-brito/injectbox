@@ -1,9 +1,42 @@
 import React from 'react';
 import * as Icons from 'react-icons/fi';
 import * as Type from '@/types/Campanha';
+import Image from 'next/image';
 
 interface CampanhaDetalhesProps {
-  campanha: Type.Campanha | null;
+  campanha: {
+    id: string;
+    nome: string;
+    status: Type.StatusCampanha;
+    conteudo: {
+      tipo: 'texto' | 'imagem' | 'botoes';
+      texto?: string;
+      imagem?: string;
+      legenda?: string;
+      botoes?: { label: string }[];
+    };
+    estatisticas: {
+      totalContatos: number;
+      sucessos: number;
+      erros: number;
+      percentualSucesso: number;
+    };
+    logs?: {
+      contatoId?: string;
+      nomeContato: string;
+      numeroContato: string;
+      status: 'sucesso' | 'erro' | 'pendente' | 'enviando';
+      mensagemErro?: string;
+      variacaoUsada?: { indice: number; conteudo: string };
+      tentativas: number;
+      codigoResposta?: number;
+      tempoResposta?: number;
+      ultimaTentativa?: number;
+    }[];
+    dataCriacao: number;
+    dataInicio?: number;
+    dataConclusao?: number;
+  } | null;
   onFechar: () => void;
   buscaLog: string;
   setBuscaLog: (busca: string) => void;
@@ -13,7 +46,18 @@ interface CampanhaDetalhesProps {
   traduzirStatus: (status: Type.StatusCampanha) => string;
   renderizarTextoComVariaveis: (texto: string) => string;
   formatarData: (timestamp: number) => string;
-  logsFiltrados: any[];
+  logsFiltrados: {
+    contatoId?: string;
+    nomeContato: string;
+    numeroContato: string;
+    status: 'sucesso' | 'erro' | 'pendente' | 'enviando';
+    mensagemErro?: string;
+    variacaoUsada?: { indice: number; conteudo: string };
+    tentativas: number;
+    codigoResposta?: number;
+    tempoResposta?: number;
+    ultimaTentativa?: number;
+  }[];
 }
 
 const CampanhaDetalhes: React.FC<CampanhaDetalhesProps> = ({
@@ -68,9 +112,11 @@ const CampanhaDetalhes: React.FC<CampanhaDetalhesProps> = ({
                   <div className="preview-imagem">
                     {campanha.conteudo.imagem && (
                       <div className="imagem-container">
-                        <img 
+                        <Image 
                           src={campanha.conteudo.imagem} 
                           alt="Imagem da campanha" 
+                          width={200} 
+                          height={150} 
                           className="preview-img-detalhes"
                         />
                       </div>
@@ -155,7 +201,7 @@ const CampanhaDetalhes: React.FC<CampanhaDetalhesProps> = ({
                   </div>
                   <select
                     value={filtroStatusLog}
-                    onChange={e => setFiltroStatusLog(e.target.value as any)}
+                    onChange={e => setFiltroStatusLog(e.target.value as 'sucesso' | 'erro' | '')}
                     className="filtro-status"
                   >
                     <option value="">Todos os Status</option>

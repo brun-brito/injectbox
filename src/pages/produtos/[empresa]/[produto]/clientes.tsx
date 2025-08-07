@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import { Cliente } from '@/types/Cliente';
 
 const ClientesPage = () => {
   const router = useRouter();
-  const { empresa, produto } = router.query;
-  const [clientes, setClientes] = useState<any[]>([]);
+  const { empresa, produto } = router.query;  const [clientes, setClientes] = useState<Cliente[]>([]);
 
   useEffect(() => {
     if (!empresa || !produto) return;

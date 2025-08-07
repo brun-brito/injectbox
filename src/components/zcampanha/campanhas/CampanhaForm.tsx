@@ -1,46 +1,55 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import * as Icons from 'react-icons/fi';
 import ContentEditable from 'react-contenteditable';
 import exemploBotoes from '@/assets/fotos/zcampanha/exemplo-botoes.jpeg';
 import * as Type from "@/types/Campanha";
+import Image from 'next/image';
 
 type ButtonAction = {
   id: string;
   label: string;
 };
 
+interface CampanhaFormData {
+  id?: string;
+  nome: string;
+  tipoMensagem: Type.TipoMensagem;
+  textoMensagem: string;
+  legendaImagem?: string;
+  imagemBase64?: string;
+  botoesAcao?: Type.ButtonAction[];
+  contatosSelecionados: Type.ContatoSelecionado[];
+}
+
 type CampanhaFormProps = {
   aberta: boolean;
   onFechar: () => void;
-  onSalvar: (dados: any) => Promise<void>;
+  onSalvar: (dados: CampanhaFormData) => Promise<void>;
   campanhaEmEdicao?: Type.Campanha | null;
   contatos: Type.Contato[];
-  // Adicionar todas as props necessárias que eram estados no componente pai
   nome: string;
   setNome: (nome: string) => void;
-  tipoMensagem: Type.TipoMensagem; // Usar o tipo correto do Type
-  setTipoMensagem: (tipo: Type.TipoMensagem) => void; // Usar o tipo correto do Type
+  tipoMensagem: Type.TipoMensagem;
+  setTipoMensagem: (tipo: Type.TipoMensagem) => void;
   textoMensagem: string;
   setTextoMensagem: (texto: string) => void;
   legendaImagem: string;
   setLegendaImagem: (legenda: string) => void;
   imagemBase64: string;
   setImagemBase64: (imagem: string) => void;
-  botoesAcao: Type.ButtonAction[]; // Usar o tipo correto do Type
-  setBotoesAcao: (botoes: Type.ButtonAction[]) => void; // Usar o tipo correto do Type
+  botoesAcao: Type.ButtonAction[];
+  setBotoesAcao: (botoes: Type.ButtonAction[]) => void;
   contatosSelecionados: Type.ContatoSelecionado[];
   setContatosSelecionados: (contatos: Type.ContatoSelecionado[]) => void;
   erro: string;
   setErro: (erro: string) => void;
   isFormValid: boolean;
-  // Estados para variáveis que eram locais
   mostrarVariaveisTexto: boolean;
   setMostrarVariaveisTexto: (mostrar: boolean) => void;
   mostrarVariaveisLegenda: boolean;
   setMostrarVariaveisLegenda: (mostrar: boolean) => void;
   mostrarVariaveisBotoes: boolean;
   setMostrarVariaveisBotoes: (mostrar: boolean) => void;
-  // Funções que eram definidas no componente pai
   handleImageUpload: (event: React.ChangeEvent<HTMLInputElement>) => void;
   adicionarBotao: () => void;
   removerBotao: (index: number) => void;
@@ -54,44 +63,51 @@ type CampanhaFormProps = {
   fecharModalCriar: () => void;
 };
 
-// Componente para menu de variáveis (igual ao original)
-const MenuVariaveis: React.FC<{
-  mostrar: boolean;
-  onInserir: (variavel: string) => void;
-  onFechar: () => void;
-}> = ({ mostrar, onInserir, onFechar }) => {
+const MenuVariaveis = ({ mostrar, onInserir, onFechar }: { 
+  mostrar: boolean, 
+  onInserir: (variavel: string) => void,
+  onFechar: () => void 
+}) => {
   if (!mostrar) return null;
-
-  return (
-    <div className="variaveis-menu">
-      <div className="variaveis-titulo">Variáveis disponíveis:</div>
-      <button
-        type="button"
-        className="variavel-item"
-        onClick={() => onInserir('$nome')}
-      >
-        <span className="variavel-codigo">$nome</span>
-        <span className="variavel-desc">Nome completo do contato</span>
-      </button>
-      <button
-        type="button"
-        className="variavel-item"
-        onClick={() => onInserir('$primeiroNome')}
-      >
-        <span className="variavel-codigo">$primeiroNome</span>
-        <span className="variavel-desc">Primeiro nome do contato</span>
-      </button>
-    </div>
-  );
-};
+    
+    return (
+      <div className="variaveis-menu">
+        <div className="variaveis-header">
+          <span className="variaveis-titulo">Inserir Variável</span>
+          <span className="variaveis-subtitulo">Clique para adicionar</span>
+        </div>
+        <div className="variaveis-lista">
+          <button
+            type="button"
+            className="variavel-item"
+            onClick={() => onInserir('$nome')}
+          >
+            <div className="variavel-preview">
+              <span className="variavel-tag">$nome</span>
+              <span className="variavel-exemplo">João Silva</span>
+            </div>
+            <span className="variavel-desc">Nome completo do contato</span>
+          </button>
+          <button
+            type="button"
+            className="variavel-item"
+            onClick={() => onInserir('$primeiroNome')}
+          >
+            <div className="variavel-preview">
+              <span className="variavel-tag">$primeiroNome</span>
+              <span className="variavel-exemplo">João</span>
+            </div>
+            <span className="variavel-desc">Primeiro nome do contato</span>
+          </button>
+        </div>
+        <div className="variaveis-overlay" onClick={onFechar}></div>
+      </div>
+    );
+  };
 
 const CampanhaForm: React.FC<CampanhaFormProps> = ({
   aberta,
-  onFechar,
-  onSalvar,
   campanhaEmEdicao = null,
-  contatos,
-  // Props dos estados que eram internos
   nome,
   setNome,
   tipoMensagem,
@@ -103,20 +119,14 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
   imagemBase64,
   setImagemBase64,
   botoesAcao,
-  setBotoesAcao,
-  contatosSelecionados,
-  setContatosSelecionados,
   erro,
-  setErro,
   isFormValid,
-  // Props dos estados de variáveis
   mostrarVariaveisTexto,
   setMostrarVariaveisTexto,
   mostrarVariaveisLegenda,
   setMostrarVariaveisLegenda,
   mostrarVariaveisBotoes,
   setMostrarVariaveisBotoes,
-  // Props das funções
   handleImageUpload,
   adicionarBotao,
   removerBotao,
@@ -129,8 +139,6 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
   salvarCampanha,
   fecharModalCriar,
 }) => {
-  // Não há mais estados internos - tudo vem via props
-
   if (!aberta) return null;
 
   return (
@@ -155,7 +163,6 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
             />
           </div>
 
-          {/* Seletor de tipo de mensagem */}
           <div className="form-group">
             <label>Tipo de Mensagem<span className="required-asterisk">*</span></label>
             <div className="tipo-mensagem-selector">
@@ -186,7 +193,6 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
             </div>
           </div>
 
-          {/* Conteúdo baseado no tipo */}
           {tipoMensagem === 'texto' && (
             <div className="form-group">
               <label>Mensagem de Texto<span className="required-asterisk">*</span></label>
@@ -199,14 +205,12 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
                     const element = e.currentTarget as HTMLDivElement;
                     let text = element.innerHTML;
                   
-                    // Substituir <br> (inclusive múltiplos) por \n
                     text = text
                       .replace(/<br\s*\/?>/gi, '\n')
                       .replace(/<div>/gi, '\n')
                       .replace(/<\/div>/gi, '')
-                      .replace(/<[^>]*>/g, ''); // remove tags extras
+                      .replace(/<[^>]*>/g, '');
                   
-                    // Decodificar entidades HTML
                     text = text
                       .replace(/&nbsp;/g, ' ')
                       .replace(/&amp;/g, '&')
@@ -224,14 +228,12 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
                   
                       const range = selection.getRangeAt(0);
                       
-                      // Inserir 2 quebras de linha
                       const br1 = document.createElement('br');
                       const br2 = document.createElement('br');
                       range.deleteContents();
                       range.insertNode(br2);
                       range.insertNode(br1);
                   
-                      // Mover o cursor para depois do segundo <br>
                       range.setStartAfter(br2);
                       range.collapse(true);
                       selection.removeAllRanges();
@@ -292,7 +294,7 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
                 ) : (
                   <div className="image-preview-container">
                     <div className="image-preview">
-                      <img src={imagemBase64} alt="Preview" className="preview-img" />
+                      <Image src={imagemBase64} alt="Preview" width={200} height={150} />
                       <button
                         type="button"
                         onClick={() => setImagemBase64('')}
@@ -327,7 +329,6 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
                     className="form-textarea editor-highlight"
                     html={renderizarTextoComVariaveis(legendaImagem)}
                     onChange={e => {
-                      // Converter HTML para texto preservando quebras de linha
                       const element = e.currentTarget as HTMLDivElement;
                       let text = element.innerHTML;
                       
@@ -415,7 +416,6 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
                     className="form-textarea editor-highlight"
                     html={renderizarTextoComVariaveis(textoMensagem)}
                     onChange={e => {
-                      // Converter HTML para texto preservando quebras de linha
                       const element = e.currentTarget as HTMLDivElement;
                       let text = element.innerHTML;
                       
@@ -513,7 +513,7 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
                 ) : (
                   <div className="image-preview-container">
                     <div className="image-preview">
-                      <img src={imagemBase64} alt="Preview" className="preview-img" />
+                      <Image src={imagemBase64} alt="Media preview" width={100} height={100} />
                       <button
                         type="button"
                         onClick={() => setImagemBase64('')}
@@ -543,17 +543,17 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
                 </small>
               </div>
 
-              {/* Seção de exemplos de botões */}
               <div className="form-group">
                 <div className="exemplo-imagem-container">
                   <div className="exemplo-imagem-header">
                     <span>Exemplo de como aparece {imagemBase64 ? 'com imagem ' : ''}no WhatsApp:</span>
                   </div>
                   <div className="exemplo-imagem-wrapper">
-                    <img 
+                    <Image 
                       src={exemploBotoes.src} 
                       alt="Exemplo de botões no WhatsApp"
-                      className="exemplo-imagem"
+                      width={80}
+                      height={80}
                     />
                   </div>
                 </div>
@@ -602,7 +602,6 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
           
           {renderizarSelecaoContatos()}
 
-          {/* Mostrar erro se existir */}
           {erro && (
             <div className="erro-feedback">
               <Icons.FiAlertCircle size={16} />

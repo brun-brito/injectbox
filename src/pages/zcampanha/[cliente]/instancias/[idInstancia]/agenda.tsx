@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo } from 'react';
 import * as Icons from 'react-icons/fi';
 import ImportarContatos from '@/components/zcampanha/ImportarContatos';
 import { withZCampanhaAuth } from '@/components/zcampanha/withZCampanhaAuth';
+import { Instancia } from '@/types/instancia';
 
 type Contato = { id: string; nome: string; numero: string };
 
@@ -55,7 +56,7 @@ const AgendaPage = () => {
         .then(res => res.json())
         .then(data => {
           if (data.instancias) {
-            const instance = data.instancias.find((inst: any) => inst.idInstancia === idInstancia);
+            const instance = data.instancias.find((inst: Instancia) => inst.idInstancia === idInstancia);
             if (instance) {
               setInstanceData({ nome: instance.nome, numero: instance.numero });
             }
@@ -163,13 +164,13 @@ const AgendaPage = () => {
     }
   };
 
-  const gerarNumerosPaginas = () => {
-    const numeros = [];
+  const gerarNumerosPaginas = (): number[] => {
+    const numeros: number[] = [];
     const maxPaginas = 5; // Máximo de números de página para mostrar
     const metade = Math.floor(maxPaginas / 2);
     
     let inicio = Math.max(1, paginaAtual - metade);
-    let fim = Math.min(totalPaginas, inicio + maxPaginas - 1);
+    const fim = Math.min(totalPaginas, inicio + maxPaginas - 1);
     
     // Ajustar início se estiver muito próximo do fim
     if (fim - inicio < maxPaginas - 1) {
@@ -316,7 +317,7 @@ const AgendaPage = () => {
         ) : contatosFiltrados.length === 0 ? (
           <div className="status-message empty">
             {busca ? (
-              <>Nenhum contato encontrado para "{busca}"</>
+              <>Nenhum contato encontrado para &quot;{busca}&quot;</>
             ) : (
               <>Nenhum contato na agenda. Adicione o primeiro contato acima!</>
             )}

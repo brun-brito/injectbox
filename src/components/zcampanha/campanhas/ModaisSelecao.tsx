@@ -173,7 +173,7 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
                 <div className="sem-contatos">
                   {buscaContatos ? (
                     <>
-                      Nenhum contato encontrado para "{buscaContatos}"
+                      Nenhum contato encontrado para &quot;{buscaContatos}&quot;
                       <button 
                         onClick={() => setBuscaContatos('')}
                         className="btn-limpar-busca-sem-resultados"
@@ -238,7 +238,7 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
                     </svg>
                   </div>
                   <h4>Nenhum grupo disponível</h4>
-                  <p>Crie grupos na seção "Grupos de Usuários" para organizá-los aqui.</p>
+                  <p>Crie grupos na seção &quot;Grupos de Usuários&quot; para organizá-los aqui.</p>
                 </div>
               ) : (
                 grupos.map(grupo => {
@@ -262,7 +262,7 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
                           style={{ backgroundColor: grupo.cor }}
                         ></div>
                         <div className="grupo-details">
-                          <span className="grupo-nome">{grupo.nome}</span>
+                          <span className="grupo-nome">Grupo &quot;{grupo.nome}&quot;</span>
                           <span className="grupo-total">{grupo.totalContatos} contatos</span>
                         </div>
                         <div className="checkbox-custom">

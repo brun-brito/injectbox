@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { dbAdmin } from '@/lib/firebaseAdmin';
 import { Campanha, LogEnvio, StatusCampanha } from '../index';
-import MensagemSender, { ConfiguracaoEnvio } from '@/utils/mensagemSender';
+import MensagemSender from '@/utils/mensagemSender';
+import { FirebaseDocRef } from '@/types/firebase';
 
 // Configurações do sistema de envio
 const CONFIG_ENVIO = {
@@ -70,7 +71,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 async function iniciarEnvioCampanha(
-  campanhaRef: any,
+  campanhaRef: FirebaseDocRef,
   cliente: string,
   idInstancia: string,
   campanhaId: string,
@@ -162,7 +163,7 @@ async function processarEnvioCampanha(
   contatosPendentes: LogEnvio[],
   tokenInstancia: string,
   clientToken: string,
-  campanhaRef: any,
+  campanhaRef: FirebaseDocRef,
   idInstancia: string
 ) {
   const campanhaId = campanha.id!;
@@ -301,7 +302,7 @@ async function processarLote(
 
 // Funções auxiliares
 function dividirEmLotes<T>(array: T[], tamanhoLote: number): T[][] {
-  const lotes = [];
+  const lotes: T[][] = [];
   for (let i = 0; i < array.length; i += tamanhoLote) {
     lotes.push(array.slice(i, i + tamanhoLote));
   }
@@ -351,7 +352,7 @@ async function buscarTokens(cliente: string, idInstancia: string) {
   return { tokenInstancia, clientToken };
 }
 
-async function atualizarLogsCampanha(campanhaRef: any, logs: LogEnvio[]) {
+async function atualizarLogsCampanha(campanhaRef: FirebaseDocRef, logs: LogEnvio[]) {
   const campanhaDoc = await campanhaRef.get();
   const campanha = campanhaDoc.data() as Campanha;
   
@@ -381,7 +382,7 @@ async function atualizarLogsCampanha(campanhaRef: any, logs: LogEnvio[]) {
   });
 }
 
-async function finalizarCampanha(campanhaId: string, campanhaRef: any, statusEnvio: StatusEnvio) {
+async function finalizarCampanha(campanhaId: string, campanhaRef: FirebaseDocRef, statusEnvio: StatusEnvio) {
   const agora = Date.now();
   
   statusEnvio.status = 'concluida';
@@ -400,7 +401,7 @@ async function finalizarCampanha(campanhaId: string, campanhaRef: any, statusEnv
   console.log(`Campanha ${campanhaId} finalizada. Sucessos: ${statusEnvio.sucessos}, Erros: ${statusEnvio.erros}`);
 }
 
-async function controlarEnvioCampanha(campanhaRef: any, campanhaId: string, acao: string, res: NextApiResponse) {
+async function controlarEnvioCampanha(campanhaRef: FirebaseDocRef, campanhaId: string, acao: string, res: NextApiResponse) {
   const statusEnvio = enviosAtivos.get(campanhaId);
   
   if (!statusEnvio) {

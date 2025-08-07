@@ -1,10 +1,12 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import WebSocketManager from '@/lib/websocketServer';
+import { WebSocketContext } from '@/types/websocket';
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     const wsManager = WebSocketManager.getInstance();
-    wsManager.initializeWebSocket(res as any);
+    const context: WebSocketContext = { req, res };
+    wsManager.initializeWebSocket(context);
     
     res.status(200).json({ message: 'WebSocket inicializado' });
   } else {

@@ -1,8 +1,9 @@
 import { useRouter } from 'next/router';
 import { useEffect, useState, ChangeEvent, useRef } from 'react';
-import { FiPaperclip, FiX, FiPlus, FiPhone, FiExternalLink, FiMessageSquare } from 'react-icons/fi';
+import { FiPaperclip, FiX, FiPlus, FiMessageSquare } from 'react-icons/fi';
 import { MdPhotoLibrary, MdSmartButton } from 'react-icons/md';
 import { withZCampanhaAuth } from '@/components/zcampanha/withZCampanhaAuth';
+import { Instancia } from '@/types/instancia';
 
 type Mensagem = {
   de: 'usuario' | 'contato';
@@ -49,7 +50,6 @@ const SimuladorPage = () => {
   const [mostrarVariaveis, setMostrarVariaveis] = useState(false);
 
   // Estados para botões de ação
-  const [mostrarBotoes, setMostrarBotoes] = useState(false);
   const [botoesAcao, setBotoesAcao] = useState<ButtonAction[]>([]);
   const [modalBotoes, setModalBotoes] = useState(false);
 
@@ -101,7 +101,7 @@ const SimuladorPage = () => {
       fetch(`/api/zcampanha/${cliente}/instancias`)
         .then(res => res.json())
         .then(data => {
-          const inst = (data.instancias || []).find((i: any) => i.idInstancia === idInstancia);
+          const inst = (data.instancias || []).find((i: Instancia) => i.idInstancia === idInstancia);
           if (inst) setTokenInstancia(inst.tokenInstancia);
         });
       fetch(`/api/zcampanha/${cliente}`)
@@ -285,7 +285,7 @@ const SimuladorPage = () => {
 
     setEnviando(true);
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         phone: contatoSelecionado.numero,
         message: mensagemProcessada,
         buttonList: {
@@ -297,7 +297,7 @@ const SimuladorPage = () => {
 
       // Adicionar imagem se selecionada
       if (imagemSelecionada) {
-        payload.buttonList.image = imagemSelecionada;
+        (payload.buttonList as Record<string, unknown>).image = imagemSelecionada;
       }
 
       const response = await fetch(`https://api.z-api.io/instances/${idInstancia}/token/${tokenInstancia}/send-button-list`, {
@@ -602,7 +602,7 @@ const SimuladorPage = () => {
         {contatoSelecionado && input.includes('$') && (
           <div className="preview-personalizada">
             <div className="preview-titulo">Preview personalizado:</div>
-            <div className="preview-texto">"{getPreviewMensagem()}"</div>
+            <div className="preview-texto">&quot;{getPreviewMensagem()}&quot;</div>
           </div>
         )}
 
@@ -735,11 +735,23 @@ const SimuladorPage = () => {
               if (e.key === 'Enter' && !e.shiftKey && !enviando) {
                 e.preventDefault();
                 if (botoesAcao.length > 0) {
-                  contatoSelecionado ? enviarTextoComBotoesReal() : enviarTextoComBotoesSimulacao();
+                  if (contatoSelecionado) {
+                    void enviarTextoComBotoesReal();
+                  } else {
+                    enviarTextoComBotoesSimulacao();
+                  }
                 } else if (imagemSelecionada) {
-                  contatoSelecionado ? enviarImagemReal() : enviarImagemSimulacao();
+                  if (contatoSelecionado) {
+                    void enviarImagemReal();
+                  } else {
+                    enviarImagemSimulacao();
+                  }
                 } else {
-                  contatoSelecionado ? enviarTextoReal() : enviarTextoSimulacao();
+                  if (contatoSelecionado) {
+                    void enviarTextoReal();
+                  } else {
+                    enviarTextoSimulacao();
+                  }
                 }
               }
             }}

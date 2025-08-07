@@ -72,7 +72,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 }
 
-async function pausarCampanha(campanhaRef: any, campanha: Campanha, res: NextApiResponse) {
+async function pausarCampanha(campanhaRef: FirebaseFirestore.DocumentReference, campanha: Campanha, res: NextApiResponse) {
   if (campanha.status !== 'enviando') {
     return res.status(400).json({ 
       error: `Campanha não pode ser pausada. Status atual: ${campanha.status}` 
@@ -142,7 +142,7 @@ async function pausarCampanha(campanhaRef: any, campanha: Campanha, res: NextApi
 }
 
 async function retomarCampanha(
-  campanhaRef: any, 
+  campanhaRef: FirebaseFirestore.DocumentReference, 
   campanha: Campanha, 
   cliente: string, 
   idInstancia: string, 
@@ -182,6 +182,7 @@ async function retomarCampanha(
     console.log(`[${campanhaId}] Arquivo de sinalização removido`);
   } catch (error) {
     console.log(`[${campanhaId}] Arquivo de sinalização não existia`);
+    console.error(error);
   }
 
   // CORREÇÃO: NÃO atualizar status aqui - deixar o iniciar-envio fazer isso
@@ -247,7 +248,7 @@ async function retomarCampanha(
   }
 }
 
-async function cancelarCampanha(campanhaRef: any, campanha: Campanha, res: NextApiResponse) {
+async function cancelarCampanha(campanhaRef: FirebaseFirestore.DocumentReference, campanha: Campanha, res: NextApiResponse) {
   if (!['enviando', 'pausada'].includes(campanha.status)) {
     return res.status(400).json({ 
       error: `Campanha não pode ser cancelada. Status atual: ${campanha.status}` 
@@ -273,7 +274,7 @@ async function cancelarCampanha(campanhaRef: any, campanha: Campanha, res: NextA
     try {
       controleAtivo.controlador.abort();
     } catch (error) {
-      // Ignorar erros de abort
+      console.error(error);
     }
   } else {
     // Criar entrada no cache se não existir
@@ -435,7 +436,7 @@ function getBaseUrl(): string {
 }
 
 // Função auxiliar para extrair parâmetros da referência do Firestore
-function extrairParametrosDaRef(campanhaRef: any): { cliente: string; idInstancia: string } {
+function extrairParametrosDaRef(campanhaRef: FirebaseFirestore.DocumentReference): { cliente: string; idInstancia: string } {
   // Exemplo de path: /empresas/cliente/produtos/zcampanha/instancias/idInstancia/campanhas/campanhaId
   const pathParts = campanhaRef.path.split('/');
   const cliente = pathParts[1];

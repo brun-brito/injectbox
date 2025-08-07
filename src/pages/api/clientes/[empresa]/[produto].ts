@@ -16,7 +16,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const clientes = clientesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     return res.status(200).json({ clientes });
-  } catch (e) {
+  } catch {
     return res.status(500).json({ erro: 'Erro ao consultar clientes' });
   }
 }

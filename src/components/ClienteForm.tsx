@@ -18,7 +18,7 @@ const placeholders: Record<string, string> = {
   telefone: 'ex: 86982731234',
   cpf: 'ex: 12345678900',
   especialidade: 'ex: Odontologia',
-  uf: '',
+  uf: 'ex: RJ',
   conselho: 'ex: 107532',
 }
 

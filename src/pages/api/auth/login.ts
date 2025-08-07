@@ -4,7 +4,7 @@ import { signInWithEmailAndPassword, getAuth } from 'firebase/auth';
 import { initializeApp, getApps } from 'firebase/app';
 
 // Initialize Firebase client app for server-side verification
-let clientAuth: any = null;
+let clientAuth: ReturnType<typeof getAuth> | null = null;
 
 const getClientAuth = () => {
   if (!clientAuth) {
@@ -23,12 +23,17 @@ const getClientAuth = () => {
   return clientAuth;
 };
 
+interface LoginRequestBody {
+  email: string;
+  password: string;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { email, password } = req.body;
+  const { email, password } = req.body as LoginRequestBody;
 
   if (!email || !password) {
     return res.status(400).json({ 
@@ -55,28 +60,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       email: userCredential.user.email
     });
     
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Erro no login:', error);
     
     let errorMessage = 'Erro ao fazer login';
     
-    switch (error.code) {
-      case 'auth/user-not-found':
-      case 'auth/wrong-password':
-      case 'auth/invalid-credential':
-        errorMessage = 'Email ou senha inválidos';
-        break;
-      case 'auth/too-many-requests':
-        errorMessage = 'Muitas tentativas. Tente novamente mais tarde';
-        break;
-      case 'auth/invalid-email':
-        errorMessage = 'Email inválido';
-        break;
-      case 'auth/user-disabled':
-        errorMessage = 'Conta desabilitada';
-        break;
-      default:
-        errorMessage = 'Erro interno do servidor';
+    if (error && typeof error === 'object' && 'code' in error) {
+      switch ((error as { code: string }).code) {
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+        case 'auth/invalid-credential':
+          errorMessage = 'Email ou senha inválidos';
+          break;
+        case 'auth/too-many-requests':
+          errorMessage = 'Muitas tentativas. Tente novamente mais tarde';
+          break;
+        case 'auth/invalid-email':
+          errorMessage = 'Email inválido';
+          break;
+        case 'auth/user-disabled':
+          errorMessage = 'Conta desabilitada';
+          break;
+        default:
+          errorMessage = 'Erro interno do servidor';
+      }
     }
     
     return res.status(401).json({ 

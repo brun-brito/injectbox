@@ -71,7 +71,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // Validar se todos os contatos existem
       const contatosRef = dbAdmin.collection(`/empresas/${cliente}/produtos/zcampanha/instancias/${idInstancia}/clientes`);
-      const contatosValidos = [];
+      const contatosValidos: string[] = [];
       
       for (const contatoId of contatos) {
         const contatoDoc = await contatosRef.doc(contatoId).get();

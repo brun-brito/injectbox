@@ -1,4 +1,5 @@
 import { withZCampanhaAuth } from '@/components/zcampanha/withZCampanhaAuth';
+import { Instancia } from '@/types/instancia';
 import { useRouter } from 'next/router';
 import { useState, useEffect } from 'react';
 
@@ -16,7 +17,7 @@ const DashboardLinks = () => {
       .then(res => res.json())
       .then(data => {
         if (data.instancias) {
-          const instance = data.instancias.find((inst: any) => inst.idInstancia === idInstancia);
+          const instance = data.instancias.find((inst: Instancia) => inst.idInstancia === idInstancia);
           if (instance) {
             setInstanceData({ nome: instance.nome, numero: instance.numero });
           }

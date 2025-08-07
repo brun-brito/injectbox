@@ -12,6 +12,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const instancias = snap.docs.map(doc => doc.data());
     res.status(200).json({ instancias });
   } catch (e) {
-    res.status(500).json({ error: 'Erro ao buscar instâncias' });
+    res.status(500).json({ error: 'Erro ao buscar instâncias', detail: e  });
   }
 }

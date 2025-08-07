@@ -189,7 +189,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       };
 
       // Construir campanha sem valores undefined
-      const novaCampanha: any = {
+      const novaCampanha: Partial<Campanha> = {
         nome: nome.trim(),
         dataCriacao: agora,
         status: dataAgendamento ? 'agendada' : 'rascunho',

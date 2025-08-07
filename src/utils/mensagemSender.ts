@@ -7,6 +7,12 @@ export interface ConfiguracaoEnvio {
   timeout?: number;
 }
 
+interface EnvioResponse {
+  sucesso: boolean;
+  erro?: string;
+  codigoResposta?: number;
+}
+
 export class MensagemSender {
   private config: ConfiguracaoEnvio;
   private baseUrl: string;
@@ -22,7 +28,7 @@ export class MensagemSender {
   async enviarMensagem(
     contato: LogEnvio,
     conteudo: ConteudoMensagem
-  ): Promise<{ sucesso: boolean; erro?: string; codigoResposta?: number }> {
+  ): Promise<EnvioResponse> {
     try {
       switch (conteudo.tipo) {
         case 'texto':
@@ -34,7 +40,7 @@ export class MensagemSender {
         default:
           return {
             sucesso: false,
-            erro: `Tipo de mensagem não suportado: ${(conteudo as any).tipo}`
+            erro: `Tipo de mensagem não suportado: ${(conteudo as Record<string, unknown>).tipo}`
           };
       }
     } catch (error) {
@@ -51,7 +57,7 @@ export class MensagemSender {
   private async enviarTexto(
     contato: LogEnvio,
     conteudo: ConteudoMensagem
-  ): Promise<{ sucesso: boolean; erro?: string; codigoResposta?: number }> {
+  ): Promise<EnvioResponse> {
     if (!conteudo.texto?.trim()) {
       return { sucesso: false, erro: 'Texto da mensagem não pode estar vazio' };
     }
@@ -59,7 +65,7 @@ export class MensagemSender {
     let mensagemProcessada = this.processarVariaveis(conteudo.texto, contato);
     mensagemProcessada = this.processarQuebrasLinha(mensagemProcessada);
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       phone: contato.numeroContato,
       message: mensagemProcessada
     };
@@ -73,12 +79,12 @@ export class MensagemSender {
   private async enviarImagem(
     contato: LogEnvio,
     conteudo: ConteudoMensagem
-  ): Promise<{ sucesso: boolean; erro?: string; codigoResposta?: number }> {
+  ): Promise<EnvioResponse> {
     if (!conteudo.imagem) {
       return { sucesso: false, erro: 'Imagem não pode estar vazia' };
     }
 
-    const payload: any = {
+    const payload: Record<string, unknown> = {
       phone: contato.numeroContato,
       image: conteudo.imagem,
       viewOnce: false
@@ -100,7 +106,7 @@ export class MensagemSender {
   private async enviarBotoes(
     contato: LogEnvio,
     conteudo: ConteudoMensagem
-  ): Promise<{ sucesso: boolean; erro?: string; codigoResposta?: number }> {
+  ): Promise<EnvioResponse> {
     if (!conteudo.texto?.trim()) {
       return { sucesso: false, erro: 'Texto da mensagem não pode estar vazio' };
     }
@@ -119,20 +125,22 @@ export class MensagemSender {
     let mensagemProcessada = this.processarVariaveis(conteudo.texto, contato);
     mensagemProcessada = this.processarQuebrasLinha(mensagemProcessada);
 
-    const payload: any = {
-      phone: contato.numeroContato,
-      message: mensagemProcessada,
-      buttonList: {
-        buttons: conteudo.botoes.map(botao => ({
-          label: botao.label
-        }))
-      }
+    const buttonList: Record<string, unknown> = {
+      buttons: conteudo.botoes.map(botao => ({
+        label: botao.label
+      }))
     };
 
     // Adicionar imagem se fornecida
     if (conteudo.imagem) {
-      payload.buttonList.image = conteudo.imagem;
+      buttonList.image = conteudo.imagem;
     }
+
+    const payload: Record<string, unknown> = {
+      phone: contato.numeroContato,
+      message: mensagemProcessada,
+      buttonList: buttonList
+    };
 
     return await this.fazerRequisicao('send-button-list', payload);
   }
@@ -142,8 +150,8 @@ export class MensagemSender {
    */
   private async fazerRequisicao(
     endpoint: string,
-    payload: any
-  ): Promise<{ sucesso: boolean; erro?: string; codigoResposta?: number }> {
+    payload: Record<string, unknown>
+  ): Promise<EnvioResponse> {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.config.timeout || 10000);

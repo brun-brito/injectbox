@@ -75,7 +75,6 @@ const GruposPage = () => {
 
   // Estados para o modal de contatos
   const [buscaContatos, setBuscaContatos] = useState('');
-  const [expandirTodos, setExpandirTodos] = useState(false);
 
   // Buscar grupos
   const fetchGrupos = async () => {
@@ -84,7 +83,7 @@ const GruposPage = () => {
       const response = await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/grupos?incluirContatos=true`);
       const data = await response.json();
       setGrupos(data.grupos || []);
-    } catch (error) {
+    } catch {
       setErro('Erro ao carregar grupos');
     }
     setLoading(false);
@@ -169,7 +168,7 @@ const GruposPage = () => {
         const data = await response.json();
         setErro(data.error || `Erro ao ${isEditing ? 'atualizar' : 'criar'} grupo`);
       }
-    } catch (error) {
+    } catch {
       setErro(`Erro de conexão ao ${isEditing ? 'atualizar' : 'criar'} grupo`);
     }
   };
@@ -208,7 +207,7 @@ const GruposPage = () => {
       });
       fetchGrupos();
       setAviso('Grupo deletado com sucesso!');
-    } catch (error) {
+    } catch {
       setErro('Erro ao deletar grupo');
     }
   };
