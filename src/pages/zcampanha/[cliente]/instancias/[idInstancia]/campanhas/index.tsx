@@ -1,6 +1,6 @@
 import { useRouter } from 'next/router';
 import { useEffect, useState, useMemo } from 'react';
-import { campanhaStyle } from './campanha-style';
+import { campanhaStyle } from '@/styles/campanha-style';
 import * as Icons from 'react-icons/fi';
 import Erro from '@/components/Erro';
 import Aviso from '@/components/Aviso';
