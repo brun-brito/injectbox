@@ -13,16 +13,32 @@ import { FirebaseDocRef } from '@/types/firebase';
 import { ConteudoComVariacao } from '@/types/api';
 import { ConteudoMensagem } from '../index';
 
-// Configurações do sistema de envio
+// NOVO: Configurações específicas para produção (MOVER PARA O TOPO)
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const AMBIENTE = IS_PRODUCTION ? 'PRODUÇÃO' : 'DESENVOLVIMENTO';
+
+// NOVA INTERFACE: Resultado do envio de mensagem
+interface ResultadoEnvio {
+  sucesso: boolean;
+  codigoResposta?: string;
+  erro?: string;
+  statusCode?: number;
+  detalhes?: string;
+}
+
+// CONFIGURAÇÕES AJUSTADAS PARA PRODUÇÃO
 const CONFIG_ENVIO = {
-  TAMANHO_LOTE: 25, // Quantas mensagens por lote
-  DELAY_ENTRE_LOTES: 30000, // 30 segundos entre lotes
-  DELAY_MINIMO_MENSAGEM: 2000, // 2 segundos mínimo entre mensagens
-  DELAY_MAXIMO_MENSAGEM: 6000, // 6 segundos máximo entre mensagens
+  TAMANHO_LOTE: IS_PRODUCTION ? 10 : 15, // Ainda menor em produção
+  DELAY_ENTRE_LOTES: IS_PRODUCTION ? 15000 : 20000, // 15s em produção
+  DELAY_MINIMO_MENSAGEM: IS_PRODUCTION ? 1000 : 1500, // 1s em produção
+  DELAY_MAXIMO_MENSAGEM: IS_PRODUCTION ? 3000 : 4000, // 3s em produção
   MAX_TENTATIVAS_CONTATO: 3,
-  TIMEOUT_REQUISICAO: 15000, // 15 segundos timeout por requisição
+  TIMEOUT_REQUISICAO: IS_PRODUCTION ? 8000 : 10000, // 8s em produção
+  TIMEOUT_TOTAL_FUNCAO: IS_PRODUCTION ? 55000 : 90000, // 55s em produção (margem de 5s)
+  MAX_CONTATOS_POR_EXECUCAO: IS_PRODUCTION ? 25 : 50, // Máximo 25 em produção
 };
 
+// TIPO PARA O PROGRESSO DE ENVIO
 type ProgressoEnvio = {
   campanhaId: string;
   status: 'iniciando' | 'criando-variacoes' | 'processando' | 'finalizando' | 'concluida' | 'erro' | 'pausada' | 'cancelada';
@@ -39,6 +55,15 @@ type ProgressoEnvio = {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const startTime = Date.now();
+  
+  console.log(`🚀 [${AMBIENTE}] INICIANDO HANDLER`);
+  console.log(`⚙️ [${AMBIENTE}] Configurações:`, {
+    timeout: CONFIG_ENVIO.TIMEOUT_TOTAL_FUNCAO,
+    maxContatos: CONFIG_ENVIO.MAX_CONTATOS_POR_EXECUCAO,
+    tamanhoLote: CONFIG_ENVIO.TAMANHO_LOTE
+  });
+  
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método não permitido' });
   }
@@ -50,20 +75,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: 'Parâmetros inválidos' });
   }
 
+  console.log(`📊 [${id}] DADOS RECEBIDOS: cliente=${cliente}, instancia=${idInstancia}`);
+
   const campanhaPath = `/empresas/${cliente}/produtos/zcampanha/instancias/${idInstancia}/campanhas`;
   const campanhaRef = dbAdmin.collection(campanhaPath).doc(id);
 
   try {
     // Verificar se a campanha existe e pode ser enviada
+    console.log(`🔍 [${id}] Buscando campanha no banco...`);
     const doc = await campanhaRef.get();
     if (!doc.exists) {
+      console.error(`❌ [${id}] Campanha não encontrada`);
       return res.status(404).json({ error: 'Campanha não encontrada' });
     }
 
     const campanha = { id: doc.id, ...doc.data() } as Campanha;
+    console.log(`📋 [${id}] Campanha encontrada: status=${campanha.status}, logs=${campanha.logs?.length || 0}`);
     
     // CORREÇÃO: Aceitar campanhas pausadas para retomada
     if (!['rascunho', 'pausada'].includes(campanha.status)) {
+      console.warn(`⚠️ [${id}] Status inválido: ${campanha.status}`);
       return res.status(400).json({ 
         error: `Campanha não pode ser enviada. Status atual: ${campanha.status}`,
         details: `Apenas campanhas com status 'rascunho' ou 'pausada' podem ser iniciadas/retomadas.`
@@ -75,24 +106,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       log.status === 'pendente' || (log.status === 'erro' && log.tentativas < CONFIG_ENVIO.MAX_TENTATIVAS_CONTATO)
     );
 
+    console.log(`📞 [${id}] Contatos pendentes: ${contatosPendentes.length}`);
+
     if (contatosPendentes.length === 0) {
+      console.warn(`⚠️ [${id}] Nenhum contato pendente encontrado`);
       return res.status(400).json({ 
         error: 'Não há contatos pendentes para envio' 
       });
     }
 
+    // VERIFICAÇÃO CRÍTICA: Em produção, sempre usar modo simplificado para lotes grandes
+    if (IS_PRODUCTION && contatosPendentes.length > 15) {
+      console.log(`🔧 [${id}] PRODUÇÃO: Ativando modo simplificado para ${contatosPendentes.length} contatos`);
+      return processarLoteSimplificado(campanha, contatosPendentes.slice(0, 15), campanhaRef, cliente, idInstancia, res);
+    }
+
     console.log(`[${id}] INICIAR/RETOMAR ENVIO: ${contatosPendentes.length} contatos pendentes`);
 
     // Buscar tokens necessários
+    console.log(`🔑 [${id}] Buscando tokens...`);
     const { tokenInstancia, clientToken } = await buscarTokens(cliente, idInstancia);
     if (!tokenInstancia || !clientToken) {
+      console.error(`❌ [${id}] Tokens não encontrados: instancia=${!!tokenInstancia}, client=${!!clientToken}`);
       return res.status(400).json({ 
         error: 'Tokens de instância não encontrados' 
       });
     }
+    console.log(`✅ [${id}] Tokens encontrados com sucesso`);
 
     // Atualizar status inicial da campanha
     const agora = Date.now();
+    console.log(`💾 [${id}] Atualizando status para 'enviando'...`);
     await campanhaRef.update({
       status: 'enviando' as StatusCampanha,
       dataInicio: agora
@@ -115,38 +159,176 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       mensagemStatus: 'Preparando envio...'
     };
 
+    console.log(`📤 [${id}] Respondendo ao cliente: ${contatosPendentes.length} contatos, ${totalLotes} lotes`);
+
     // Responder imediatamente ao cliente
     res.status(200).json({
       message: 'Envio da campanha iniciado com sucesso',
       progresso,
       totalContatos: contatosPendentes.length,
-      totalLotes
+      totalLotes,
+      ambiente: AMBIENTE,
+      timeout: CONFIG_ENVIO.TIMEOUT_TOTAL_FUNCAO
     });
 
+    // NOVO: Timeout mais agressivo em produção
+    const tempoDecorrido = Date.now() - startTime;
+    const tempoRestante = CONFIG_ENVIO.TIMEOUT_TOTAL_FUNCAO - tempoDecorrido;
+    
+    console.log(`⏱️ [${id}] Tempo decorrido: ${tempoDecorrido}ms, restante: ${tempoRestante}ms`);
+    
+    if (IS_PRODUCTION && tempoRestante < 20000) { // 20 segundos em produção
+      console.warn(`⚠️ [${id}] PRODUÇÃO: Tempo insuficiente, usando modo express`);
+      
+      setImmediate(() => {
+        processarModoExpress(
+          campanha,
+          contatosPendentes.slice(0, 5), // Apenas 5 contatos no modo express
+          tokenInstancia,
+          clientToken,
+          campanhaRef,
+          cliente,
+          idInstancia
+        ).catch(error => {
+          console.error(`💥 [${id}] Erro no modo express:`, error);
+        });
+      });
+      return;
+    }
+
     // Iniciar processamento assíncrono (sem await para não bloquear a resposta)
-    processarCampanhaCompleta(
-      campanha,
-      contatosPendentes,
-      tokenInstancia,
-      clientToken,
-      campanhaRef,
-      cliente,
-      idInstancia,
-      progresso
-    ).catch(error => {
-      console.error(`Erro no processamento da campanha ${id}:`, error);
+    console.log(`🔄 [${id}] Iniciando processamento assíncrono...`);
+    setImmediate(() => {
+      processarCampanhaCompleta(
+        campanha,
+        contatosPendentes,
+        tokenInstancia,
+        clientToken,
+        campanhaRef,
+        cliente,
+        idInstancia,
+        progresso,
+        startTime
+      ).catch(error => {
+        console.error(`💥 [${id}] Erro no processamento da campanha:`, error);
+      });
     });
 
   } catch (error) {
-    console.error('Erro ao iniciar envio:', error);
+    const tempoTotal = Date.now() - startTime;
+    console.error(`💥 Erro ao iniciar envio (${tempoTotal}ms):`, error);
+    
+    // NOVO: Log detalhado para debug
+    console.error(`💥 Stack trace:`, error instanceof Error ? error.stack : 'Sem stack');
+    console.error(`💥 Ambiente:`, process.env.NODE_ENV);
+    console.error(`💥 Timeout configurado:`, CONFIG_ENVIO.TIMEOUT_TOTAL_FUNCAO);
+    
     return res.status(500).json({ 
       error: 'Erro interno do servidor',
-      details: error instanceof Error ? error.message : 'Erro desconhecido'
+      details: error instanceof Error ? error.message : 'Erro desconhecido',
+      tempoExecucao: tempoTotal,
+      ambiente: AMBIENTE
     });
   }
 }
 
-async function processarCampanhaCompleta(
+// NOVA FUNÇÃO: Processamento simplificado para produção
+async function processarLoteSimplificado(
+  campanha: Campanha,
+  contatos: LogEnvio[],
+  campanhaRef: FirebaseDocRef,
+  cliente: string,
+  idInstancia: string,
+  res: NextApiResponse
+) {
+  console.log(`🚀 [${campanha.id}] PROCESSAMENTO SIMPLIFICADO: ${contatos.length} contatos`);
+  
+  // Responder imediatamente
+  res.status(200).json({
+    message: 'Processamento simplificado iniciado',
+    totalContatos: contatos.length,
+    modo: 'simplificado',
+    ambiente: 'PRODUÇÃO'
+  });
+
+  // Processar de forma simplificada
+  try {
+    const { tokenInstancia, clientToken } = await buscarTokens(cliente, idInstancia);
+    if (!tokenInstancia || !clientToken) {
+      throw new Error('Tokens não encontrados');
+    }
+
+    // Criar instância do MensagemSender
+    const sender = new MensagemSender({
+      tokenInstancia,
+      clientToken,
+      idInstancia,
+      timeout: CONFIG_ENVIO.TIMEOUT_REQUISICAO
+    });
+
+    // Processar contatos sequencialmente com timeout rígido
+    for (let i = 0; i < contatos.length; i++) {
+      const contato = contatos[i];
+      const inicioEnvio = Date.now();
+      
+      try {
+        contato.status = 'enviando';
+        contato.timestampEnvio = inicioEnvio;
+        
+        // Enviar mensagem com tipo correto
+        const resultado = await Promise.race([
+          sender.enviarMensagem(contato, campanha.conteudo as ConteudoMensagem),
+          new Promise<ResultadoEnvio>((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout individual')), CONFIG_ENVIO.TIMEOUT_REQUISICAO)
+          )
+        ]) as ResultadoEnvio;
+
+        const fimEnvio = Date.now();
+        contato.tempoResposta = fimEnvio - inicioEnvio;
+        
+        if (resultado.sucesso) {
+          contato.status = 'sucesso';
+          contato.codigoResposta = resultado.codigoResposta ? parseInt(resultado.codigoResposta, 10) : undefined;
+        } else {
+          contato.status = 'erro';
+          contato.tentativas++;
+          contato.mensagemErro = resultado.erro;
+        }
+
+        console.log(`📞 [${campanha.id}] Contato ${i + 1}/${contatos.length}: ${contato.status} (${contato.tempoResposta}ms)`);
+
+      } catch (error) {
+        contato.status = 'erro';
+        contato.tentativas++;
+        contato.mensagemErro = error instanceof Error ? error.message : 'Erro desconhecido';
+        contato.tempoResposta = Date.now() - inicioEnvio;
+        console.error(`❌ [${campanha.id}] Erro contato ${i + 1}:`, error);
+      }
+
+      contato.ultimaTentativa = Date.now();
+      
+      // Delay menor entre mensagens
+      if (i < contatos.length - 1) {
+        await delay(1000); // 1 segundo apenas
+      }
+    }
+
+    // Atualizar logs no banco
+    await atualizarLogsCampanha(campanhaRef, contatos);
+    
+    console.log(`✅ [${campanha.id}] Processamento simplificado concluído`);
+
+  } catch (error) {
+    console.error(`💥 [${campanha.id}] Erro no processamento simplificado:`, error);
+    await campanhaRef.update({
+      status: 'pausada' as StatusCampanha,
+      ultimaAtualizacao: Date.now()
+    });
+  }
+}
+
+// NOVA FUNÇÃO: Processamento com controle de timeout
+async function processarCampanhaSimplificada(
   campanha: Campanha,
   contatosPendentes: LogEnvio[],
   tokenInstancia: string,
@@ -157,12 +339,304 @@ async function processarCampanhaCompleta(
   progresso: ProgressoEnvio
 ) {
   const campanhaId = campanha.id!;
-  const wsManager = WebSocketManager.getInstance();
+  const startTime = Date.now();
   
-  // Registrar campanha como ativa no sistema de controle
+  console.log(`🔥 [${campanhaId}] PROCESSAMENTO SIMPLIFICADO INICIADO`);
+  
   registrarCampanhaAtiva(campanhaId, cliente, idInstancia);
   
   try {
+    // Criar variações apenas se necessário
+    await criarVariacoesMensagem(campanha, campanhaRef);
+    
+    // Verificar timeout
+    if (Date.now() - startTime > CONFIG_ENVIO.TIMEOUT_TOTAL_FUNCAO * 0.8) {
+      console.warn(`⏱️ [${campanhaId}] Timeout próximo, finalizando`);
+      return;
+    }
+
+    // Buscar campanha atualizada
+    const campanhaDoc = await campanhaRef.get();
+    const campanhaAtualizada = { id: campanhaDoc.id, ...campanhaDoc.data() } as Campanha;
+    
+    if (!campanhaAtualizada.conteudo.variacoes || campanhaAtualizada.conteudo.variacoes.length === 0) {
+      campanhaAtualizada.conteudo.variacoes = [campanha.conteudo.texto || ''];
+    }
+
+    // Criar instância do MensagemSender
+    const sender = new MensagemSender({
+      tokenInstancia,
+      clientToken,
+      idInstancia,
+      timeout: CONFIG_ENVIO.TIMEOUT_REQUISICAO
+    });
+
+    // Processar apenas primeiro lote
+    const primeiroLote = contatosPendentes.slice(0, CONFIG_ENVIO.TAMANHO_LOTE);
+    
+    console.log(`📦 [${campanhaId}] Processando lote simplificado: ${primeiroLote.length} contatos`);
+    
+    const resultados = await processarLoteSimples(primeiroLote, campanhaAtualizada, sender, progresso, campanhaId);
+    
+    // Atualizar logs
+    await atualizarLogsCampanha(campanhaRef, resultados.logs);
+    
+    // Verificar se ainda há contatos pendentes
+    const campanhaFinal = await campanhaRef.get();
+    const campanhaFinalData = campanhaFinal.data() as Campanha;
+    const aindaPendentes = campanhaFinalData.logs.filter(log => 
+      log.status === 'pendente' || (log.status === 'erro' && log.tentativas < CONFIG_ENVIO.MAX_TENTATIVAS_CONTATO)
+    );
+    
+    if (aindaPendentes.length === 0) {
+      await campanhaRef.update({
+        status: 'concluida' as StatusCampanha,
+        dataConclusao: Date.now()
+      });
+      console.log(`✅ [${campanhaId}] Campanha concluída!`);
+    } else {
+      await campanhaRef.update({
+        status: 'pausada' as StatusCampanha,
+        ultimaAtualizacao: Date.now()
+      });
+      console.log(`⏸️ [${campanhaId}] Campanha pausada: ${aindaPendentes.length} contatos restantes`);
+    }
+    
+    limparControleCampanha(campanhaId, cliente, idInstancia);
+    
+  } catch (error) {
+    console.error(`💥 [${campanhaId}] Erro no processamento simplificado:`, error);
+    
+    await campanhaRef.update({
+      status: 'pausada' as StatusCampanha,
+      ultimaAtualizacao: Date.now()
+    });
+    
+    limparControleCampanha(campanhaId, cliente, idInstancia);
+  }
+}
+
+// FUNÇÃO SIMPLIFICADA para processar lote
+async function processarLoteSimples(
+  lote: LogEnvio[],
+  campanha: Campanha,
+  sender: MensagemSender,
+  progresso: ProgressoEnvio,
+  campanhaId: string
+) {
+  const resultados = {
+    sucessos: 0,
+    erros: 0,
+    logs: [] as LogEnvio[]
+  };
+
+  const variacoes = campanha.conteudo.variacoes || [campanha.conteudo.texto || ''];
+
+  for (let i = 0; i < lote.length; i++) {
+    const contato = lote[i];
+    const inicioEnvio = Date.now();
+    
+    try {
+      contato.status = 'enviando';
+      contato.timestampEnvio = inicioEnvio;
+      
+      // Escolher variação
+      const { conteudo: conteudoParaEnvio } = obterConteudoComVariacao(
+        campanha.conteudo, 
+        variacoes, 
+        i, 
+        progresso.contatosProcessados + i
+      );
+      
+      // Enviar mensagem com timeout e tipo correto
+      const resultado = await Promise.race([
+        sender.enviarMensagem(contato, conteudoParaEnvio as ConteudoMensagem),
+        new Promise<ResultadoEnvio>((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout')), CONFIG_ENVIO.TIMEOUT_REQUISICAO)
+        )
+      ]) as ResultadoEnvio;
+
+      const fimEnvio = Date.now();
+      contato.tempoResposta = fimEnvio - inicioEnvio;
+      contato.codigoResposta = resultado.codigoResposta ? parseInt(resultado.codigoResposta, 10) : undefined;
+
+      if (resultado.sucesso) {
+        contato.status = 'sucesso';
+        resultados.sucessos++;
+        progresso.sucessos++;
+      } else {
+        contato.status = 'erro';
+        contato.tentativas++;
+        contato.mensagemErro = resultado.erro;
+        resultados.erros++;
+        progresso.erros++;
+      }
+
+      console.log(`📞 [${campanhaId}] ${contato.nomeContato}: ${contato.status} (${contato.tempoResposta}ms)`);
+
+    } catch (error) {
+      contato.status = 'erro';
+      contato.tentativas++;
+      contato.mensagemErro = error instanceof Error ? error.message : 'Erro desconhecido';
+      contato.tempoResposta = Date.now() - inicioEnvio;
+      resultados.erros++;
+      progresso.erros++;
+      
+      console.error(`❌ [${campanhaId}] Erro ${contato.nomeContato}:`, error);
+    }
+
+    contato.ultimaTentativa = Date.now();
+    resultados.logs.push({ ...contato });
+
+    progresso.contatosProcessados++;
+    progresso.ultimaAtualizacao = Date.now();
+
+    // Delay mínimo entre mensagens
+    if (i < lote.length - 1) {
+      await delay(1500); // 1.5 segundos
+    }
+  }
+
+  return resultados;
+}
+
+// NOVA FUNÇÃO: Modo express para situações críticas de timeout
+async function processarModoExpress(
+  campanha: Campanha,
+  contatos: LogEnvio[],
+  tokenInstancia: string,
+  clientToken: string,
+  campanhaRef: FirebaseDocRef,
+  cliente: string,
+  idInstancia: string
+) {
+  const campanhaId = campanha.id!;
+  console.log(`⚡ [${campanhaId}] MODO EXPRESS: ${contatos.length} contatos`);
+  
+  try {
+    registrarCampanhaAtiva(campanhaId, cliente, idInstancia);
+    
+    // Pular criação de variações no modo express
+    const sender = new MensagemSender({
+      tokenInstancia,
+      clientToken,
+      idInstancia,
+      timeout: 5000 // Timeout super agressivo
+    });
+
+    // Processar sem delays
+    for (let i = 0; i < contatos.length; i++) {
+      const contato = contatos[i];
+      const inicioEnvio = Date.now();
+      
+      try {
+        contato.status = 'enviando';
+        contato.timestampEnvio = inicioEnvio;
+        
+        // Timeout ainda mais agressivo com tipo correto
+        const resultado = await Promise.race([
+          sender.enviarMensagem(contato, campanha.conteudo as ConteudoMensagem),
+          new Promise<ResultadoEnvio>((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout express')), 3000)
+          )
+        ]) as ResultadoEnvio;
+
+        contato.tempoResposta = Date.now() - inicioEnvio;
+        
+        if (resultado.sucesso) {
+          contato.status = 'sucesso';
+          contato.codigoResposta = resultado.codigoResposta ? parseInt(resultado.codigoResposta, 10) : undefined;
+        } else {
+          contato.status = 'erro';
+          contato.tentativas++;
+          contato.mensagemErro = resultado.erro;
+        }
+
+        console.log(`⚡ [${campanhaId}] Express ${i + 1}/${contatos.length}: ${contato.status}`);
+
+      } catch (error) {
+        contato.status = 'erro';
+        contato.tentativas++;
+        contato.mensagemErro = error instanceof Error ? error.message : 'Erro express';
+        contato.tempoResposta = Date.now() - inicioEnvio;
+        console.error(`❌ [${campanhaId}] Express erro ${i + 1}:`, error);
+      }
+
+      contato.ultimaTentativa = Date.now();
+      
+      // SEM delays no modo express
+    }
+
+    // Atualizar logs
+    await atualizarLogsCampanha(campanhaRef, contatos);
+    
+    // Determinar status final
+    const campanhaAtual = await campanhaRef.get();
+    const campanhaData = campanhaAtual.data() as Campanha;
+    const pendentes = campanhaData.logs.filter(log => 
+      log.status === 'pendente' || (log.status === 'erro' && log.tentativas < CONFIG_ENVIO.MAX_TENTATIVAS_CONTATO)
+    );
+    
+    const statusFinal = pendentes.length === 0 ? 'concluida' : 'pausada';
+    
+    await campanhaRef.update({
+      status: statusFinal as StatusCampanha,
+      ultimaAtualizacao: Date.now(),
+      ...(statusFinal === 'concluida' ? { dataConclusao: Date.now() } : {})
+    });
+    
+    console.log(`⚡ [${campanhaId}] Modo express finalizado: ${statusFinal}`);
+    
+    limparControleCampanha(campanhaId, cliente, idInstancia);
+    
+  } catch (error) {
+    console.error(`💥 [${campanhaId}] Erro no modo express:`, error);
+    
+    await campanhaRef.update({
+      status: 'pausada' as StatusCampanha,
+      ultimaAtualizacao: Date.now()
+    });
+    
+    limparControleCampanha(campanhaId, cliente, idInstancia);
+  }
+}
+
+// FUNÇÃO PRINCIPAL: Processamento completo
+async function processarCampanhaCompleta(
+  campanha: Campanha,
+  contatosPendentes: LogEnvio[],
+  tokenInstancia: string,
+  clientToken: string,
+  campanhaRef: FirebaseDocRef,
+  cliente: string,
+  idInstancia: string,
+  progresso: ProgressoEnvio,
+  startTime: number
+) {
+  const campanhaId = campanha.id!;
+  const wsManager = WebSocketManager.getInstance();
+  
+  console.log(`🔄 [${campanhaId}] PROCESSAMENTO COMPLETO INICIADO`);
+  
+  registrarCampanhaAtiva(campanhaId, cliente, idInstancia);
+  
+  try {
+    // VERIFICAÇÃO CRÍTICA DE TIMEOUT
+    const tempoDecorrido = Date.now() - startTime;
+    if (tempoDecorrido > CONFIG_ENVIO.TIMEOUT_TOTAL_FUNCAO * 0.7) {
+      console.warn(`⏱️ [${campanhaId}] Tempo limite próximo, mudando para processamento simplificado`);
+      return processarCampanhaSimplificada(
+        campanha, 
+        contatosPendentes.slice(0, 10), 
+        tokenInstancia, 
+        clientToken, 
+        campanhaRef, 
+        cliente, 
+        idInstancia, 
+        progresso
+      );
+    }
+
     // PASSO 1: Criar variações da mensagem
     progresso.status = 'criando-variacoes';
     progresso.mensagemStatus = 'Criando variações da mensagem...';
@@ -180,35 +654,29 @@ async function processarCampanhaCompleta(
       return;
     }
 
-    // CORREÇÃO: Buscar campanha atualizada CORRETAMENTE
+    // Buscar campanha atualizada
     const campanhaDoc = await campanhaRef.get();
     const campanhaAtualizada = { id: campanhaDoc.id, ...campanhaDoc.data() } as Campanha;
     
-    // Garantir que as variações estão disponíveis
     if (!campanhaAtualizada.conteudo.variacoes || campanhaAtualizada.conteudo.variacoes.length === 0) {
       campanhaAtualizada.conteudo.variacoes = [campanha.conteudo.texto || ''];
     }
     
     const variacoes = campanhaAtualizada.conteudo.variacoes;
-    
     console.log(`[${campanhaId}] Variações disponíveis para envio: ${variacoes.length}`);
-    variacoes.forEach((variacao, index) => {
-      console.log(`[${campanhaId}] Variação ${index}: "${variacao.substring(0, 60)}..."`);
-    });
 
-    // PASSO 2: Processar envios em lotes
+    // PASSO 2: Processar envios em lotes simplificados
     progresso.status = 'processando';
     progresso.mensagemStatus = 'Enviando mensagens...';
     progresso.ultimaAtualizacao = Date.now();
     
     emitirProgresso(wsManager, progresso);
 
-    const lotes = dividirEmLotes(contatosPendentes, CONFIG_ENVIO.TAMANHO_LOTE);
-    progresso.totalLotes = lotes.length;
+    // Processar apenas o primeiro lote em produção para evitar timeout
+    const primeiroLote = contatosPendentes.slice(0, CONFIG_ENVIO.TAMANHO_LOTE);
+    
+    console.log(`[${campanhaId}] Processando primeiro lote: ${primeiroLote.length} contatos`);
 
-    console.log(`[${campanhaId}] Iniciando processamento de ${lotes.length} lotes...`);
-
-    // Criar instância do MensagemSender
     const sender = new MensagemSender({
       tokenInstancia,
       clientToken,
@@ -216,358 +684,131 @@ async function processarCampanhaCompleta(
       timeout: CONFIG_ENVIO.TIMEOUT_REQUISICAO
     });
 
-    for (let i = 0; i < lotes.length; i++) {
-      // VERIFICAÇÃO CRÍTICA: Checar se deve parar antes de cada lote
-      if (await devePararCampanha(campanhaId, cliente, idInstancia)) {
-        const statusControle = getStatusControle(campanhaId);
-        console.log(`[${campanhaId}] 🛑 INTERROMPENDO NO LOTE ${i + 1}/${lotes.length} - STATUS: ${statusControle}`);
-        
-        if (statusControle === 'pausada') {
-          progresso.status = 'pausada';
-          progresso.mensagemStatus = `Campanha pausada no lote ${i + 1}/${lotes.length}`;
-          emitirProgresso(wsManager, progresso);
-          
-          // CORREÇÃO: Atualizar status no banco como pausada
-          await campanhaRef.update({
-            status: 'pausada' as StatusCampanha,
-            ultimaAtualizacao: Date.now()
-          });
-          
-          console.log(`[${campanhaId}] ✅ Campanha pausada e salva no banco`);
-          
-          // Não limpar do cache, manter para poder retomar
-          return;
-        } else if (statusControle === 'cancelada') {
-          progresso.status = 'cancelada';
-          progresso.mensagemStatus = 'Campanha cancelada pelo usuário';
-          emitirProgresso(wsManager, progresso);
-          
-          // Marcar como cancelada no banco
-          await campanhaRef.update({
-            status: 'cancelada' as StatusCampanha,
-            dataConclusao: Date.now()
-          });
-          
-          limparControleCampanha(campanhaId, cliente, idInstancia);
-          return;
-        }
-      }
+    const resultados = await processarLoteSimples(primeiroLote, campanhaAtualizada, sender, progresso, campanhaId);
 
-      const loteAtual = lotes[i];
-      progresso.loteAtual = i + 1;
-      progresso.ultimaAtualizacao = Date.now();
+    // Atualizar logs no banco
+    await atualizarLogsCampanha(campanhaRef, resultados.logs);
 
-      console.log(`[${campanhaId}] Processando lote ${i + 1}/${lotes.length} (${loteAtual.length} contatos)...`);
+    console.log(`[${campanhaId}] Primeiro lote concluído: ${resultados.sucessos} sucessos, ${resultados.erros} erros`);
 
-      // CORREÇÃO: Passar a campanha com variações corretas
-      const resultadosLote = await processarLote(loteAtual, campanhaAtualizada, sender, progresso, wsManager, campanhaId, cliente, idInstancia);
-
-      // Verificar se foi pausada/cancelada durante o lote
-      if (await devePararCampanha(campanhaId, cliente, idInstancia)) {
-        const statusControle = getStatusControle(campanhaId);
-        console.log(`[${campanhaId}] 🛑 INTERROMPENDO APÓS LOTE ${i + 1} - STATUS: ${statusControle}`);
-        
-        // Salvar logs do lote atual antes de parar
-        await atualizarLogsCampanha(campanhaRef, resultadosLote.logs);
-        
-        if (statusControle === 'pausada') {
-          // Garantir que está pausada no banco
-          await campanhaRef.update({
-            status: 'pausada' as StatusCampanha,
-            ultimaAtualizacao: Date.now()
-          });
-          console.log(`[${campanhaId}] ✅ Status pausada confirmado no banco após lote`);
-          return; // Sair sem limpar cache
-        } else if (statusControle === 'cancelada') {
-          await campanhaRef.update({
-            status: 'cancelada' as StatusCampanha,
-            dataConclusao: Date.now()
-          });
-          limparControleCampanha(campanhaId, cliente, idInstancia);
-          return;
-        }
-      }
-
-      // Atualizar logs no banco após cada lote (com logs completos)
-      await atualizarLogsCampanha(campanhaRef, resultadosLote.logs);
-
-      console.log(`[${campanhaId}] Lote ${i + 1} concluído: ${resultadosLote.sucessos} sucessos, ${resultadosLote.erros} erros`);
-
-      // Delay entre lotes (exceto no último) - com verificações de parada
-      if (i < lotes.length - 1) {
-        const delaySegundos = CONFIG_ENVIO.DELAY_ENTRE_LOTES / 1000;
-        console.log(`[${campanhaId}] Aguardando ${delaySegundos}s antes do próximo lote...`);
-        
-        // Delay com verificações periódicas (a cada segundo)
-        for (let delayElapsed = 0; delayElapsed < CONFIG_ENVIO.DELAY_ENTRE_LOTES; delayElapsed += 1000) {
-          if (await devePararCampanha(campanhaId, cliente, idInstancia)) {
-            const statusControle = getStatusControle(campanhaId);
-            console.log(`[${campanhaId}] 🛑 INTERROMPENDO DURANTE DELAY - STATUS: ${statusControle}`);
-            
-            if (statusControle === 'pausada') {
-              // Atualizar status no banco
-              await campanhaRef.update({
-                status: 'pausada' as StatusCampanha,
-                ultimaAtualizacao: Date.now()
-              });
-              console.log(`[${campanhaId}] ✅ Status pausada confirmado no banco durante delay`);
-              return;
-            } else if (statusControle === 'cancelada') {
-              await campanhaRef.update({
-                status: 'cancelada' as StatusCampanha,
-                dataConclusao: Date.now()
-              });
-              limparControleCampanha(campanhaId, cliente, idInstancia);
-              return;
-            }
-          }
-          await delay(Math.min(1000, CONFIG_ENVIO.DELAY_ENTRE_LOTES - delayElapsed));
-        }
-      }
-    }
-
-    // PASSO 3: Finalizar campanha (só chega aqui se não foi pausada/cancelada)
-    progresso.status = 'finalizando';
-    progresso.mensagemStatus = 'Finalizando campanha...';
-    progresso.ultimaAtualizacao = Date.now();
-    
-    emitirProgresso(wsManager, progresso);
-
-    console.log(`[${campanhaId}] Finalizando campanha...`);
+    // PASSO 3: Finalizar ou pausar baseado nos contatos restantes
     await finalizarCampanha(campanhaRef, progresso);
 
-    // Emitir conclusão
-    wsManager.emitirCampanhaConcluida(campanhaId, {
-      totalContatos: progresso.totalContatos,
-      sucessos: progresso.sucessos,
-      erros: progresso.erros,
-      percentualSucesso: progresso.totalContatos > 0 ? (progresso.sucessos / progresso.totalContatos) * 100 : 0
-    });
-
-    console.log(`[${campanhaId}] Campanha concluída com sucesso! Total: ${progresso.sucessos} sucessos, ${progresso.erros} erros`);
-
-    // Limpar do cache de controle
     limparControleCampanha(campanhaId, cliente, idInstancia);
 
   } catch (error) {
-    console.error(`[${campanhaId}] Erro no processamento:`, error);
+    const tempoTotal = Date.now() - startTime;
+    console.error(`[${campanhaId}] Erro no processamento (${tempoTotal}ms):`, error);
     
     progresso.status = 'erro';
     progresso.mensagemStatus = `Erro: ${error instanceof Error ? error.message : 'Erro desconhecido'}`;
     progresso.ultimaAtualizacao = Date.now();
 
-    // Emitir erro
     wsManager.emitirErroCampanha(campanhaId, progresso.mensagemStatus);
 
     await campanhaRef.update({
-      status: 'cancelada' as StatusCampanha,
-      dataConclusao: Date.now()
+      status: 'pausada' as StatusCampanha,
+      ultimaAtualizacao: Date.now()
     });
     
-    // Limpar do cache de controle
     limparControleCampanha(campanhaId, cliente, idInstancia);
   }
 }
 
-async function processarLote(
-  lote: LogEnvio[],
-  campanha: Campanha,
-  sender: MensagemSender,
-  progresso: ProgressoEnvio,
-  wsManager: WebSocketManager,
-  campanhaId: string,
-  cliente: string,
-  idInstancia: string
-) {
-  const resultados = {
-    sucessos: 0,
-    erros: 0,
-    logs: [] as LogEnvio[]
-  };
-
-  // Determinar variações disponíveis baseado no tipo de mensagem
-  let variacoes: string[] = [];
-  const tipoMensagem = campanha.conteudo.tipo;
+// FUNÇÕES AUXILIARES
+async function buscarTokens(cliente: string, idInstancia: string) {
+  const instanciasRef = dbAdmin.collection(`/empresas/${cliente}/produtos/zcampanha/instancias`);
+  const instanciasSnap = await instanciasRef.get();
   
-  switch (tipoMensagem) {
-    case 'texto':
-      variacoes = campanha.conteudo.variacoes || [campanha.conteudo.texto || ''];
-      break;
-    case 'imagem':
-      // Para imagens, usar variações da legenda se existirem
-      if (campanha.conteudo.legenda) {
-        variacoes = campanha.conteudo.variacoesLegenda || [campanha.conteudo.legenda];
-      }
-      break;
-    case 'botoes':
-      variacoes = campanha.conteudo.variacoes || [campanha.conteudo.texto || ''];
-      break;
-  }
-  
-  console.log(`[${campanha.id}] Iniciando lote ${tipoMensagem} com ${variacoes.length} variações disponíveis`);
-
-  for (let i = 0; i < lote.length; i++) {
-    // VERIFICAÇÃO CRÍTICA: Checar antes de cada mensagem - VERSÃO ASSÍNCRONA
-    if (await devePararCampanha(campanhaId, cliente, idInstancia)) {
-      const statusControle = getStatusControle(campanhaId);
-      console.log(`[${campanhaId}] 🛑 INTERROMPENDO NA MENSAGEM ${i + 1}/${lote.length} - STATUS: ${statusControle}`);
-      
-      // CORREÇÃO: Atualizar progresso para pausada antes de sair
-      if (statusControle === 'pausada') {
-        progresso.status = 'pausada';
-        progresso.mensagemStatus = `Pausada na mensagem ${i + 1} do lote ${progresso.loteAtual}`;
-        emitirProgresso(wsManager, progresso);
-        
-        // Atualizar status no banco imediatamente
-        const campanhaPath = `/empresas/${cliente}/produtos/zcampanha/instancias/${idInstancia}/campanhas`;
-        const campanhaRef = dbAdmin.collection(campanhaPath).doc(campanhaId);
-        await campanhaRef.update({
-          status: 'pausada' as StatusCampanha,
-          ultimaAtualizacao: Date.now()
-        });
-        
-        console.log(`[${campanhaId}] Status atualizado para PAUSADA no banco durante processamento`);
-      }
-      
-      break; // Sair do loop de mensagens
+  let tokenInstancia = null;
+  instanciasSnap.docs.forEach(doc => {
+    const data = doc.data();
+    if (data.idInstancia === idInstancia) {
+      tokenInstancia = data.tokenInstancia;
     }
+  });
 
-    const contato = lote[i];
-    const inicioEnvio = Date.now();
-    
-    try {
-      // Atualizar status para enviando
-      contato.status = 'enviando';
-      contato.timestampEnvio = inicioEnvio;
-      
-      // Escolher variação da mensagem
-      const { conteudo: conteudoParaEnvio, variacaoInfo } = obterConteudoComVariacao(
-        campanha.conteudo, 
-        variacoes, 
-        i, 
-        progresso.contatosProcessados + i
-      );
-      
-      // Salvar informação da variação no log do contato
-      if (variacaoInfo) {
-        contato.variacaoUsada = variacaoInfo;
-      }
-      
-      // Log da variação escolhida baseado no tipo
-      let logVariacao = '';
-      switch (tipoMensagem) {
-        case 'texto':
-        case 'botoes':
-          logVariacao = variacaoInfo 
-            ? `variação ${variacaoInfo.indice}: "${typeof variacaoInfo.conteudo === 'string' ? variacaoInfo.conteudo.substring(0, 50) : String(variacaoInfo.conteudo).substring(0, 50)}..."` 
-            : `texto original: "${typeof conteudoParaEnvio.texto === 'string' ? conteudoParaEnvio.texto.substring(0, 50) : String(conteudoParaEnvio.texto || '').substring(0, 50)}..."`;
-          break;
-        case 'imagem':
-          if (variacaoInfo) {
-            logVariacao = `legenda variação ${variacaoInfo.indice}: "${typeof variacaoInfo.conteudo === 'string' ? variacaoInfo.conteudo.substring(0, 50) : String(variacaoInfo.conteudo).substring(0, 50)}..."`;
-          } else {
-            const legenda = conteudoParaEnvio.legenda;
-            logVariacao = typeof legenda === 'string' && legenda
-              ? `legenda original: "${legenda.substring(0, 50)}..."` 
-              : 'sem legenda';
-          }
-          break;
-      }
-      
-      console.log(`[${campanha.id}] Contato ${i + 1} (${contato.nomeContato}): Usando ${logVariacao}`);
-      
-      // Enviar mensagem
-      const resultado = await sender.enviarMensagem(contato, conteudoParaEnvio as ConteudoMensagem);
+  const clienteRef = dbAdmin.doc(`/empresas/${cliente}/produtos/zcampanha`);
+  const clienteDoc = await clienteRef.get();
+  const clientToken = clienteDoc.data()?.['Client-Token'];
 
-      const fimEnvio = Date.now();
-      contato.tempoResposta = fimEnvio - inicioEnvio;
-      contato.codigoResposta = resultado.codigoResposta;
-
-      if (resultado.sucesso) {
-        contato.status = 'sucesso';
-        resultados.sucessos++;
-        progresso.sucessos++;
-      } else {
-        contato.status = 'erro';
-        contato.tentativas++;
-        contato.mensagemErro = resultado.erro;
-        resultados.erros++;
-        progresso.erros++;
-      }
-
-      console.log(`[${campanha.id}] Contato ${contato.nomeContato}: ${resultado.sucesso ? 'SUCESSO' : 'ERRO'} - ${contato.tempoResposta}ms`);
-
-    } catch (error) {
-      contato.status = 'erro';
-      contato.tentativas++;
-      contato.mensagemErro = error instanceof Error ? error.message : 'Erro desconhecido';
-      contato.tempoResposta = Date.now() - inicioEnvio;
-      resultados.erros++;
-      progresso.erros++;
-      
-      console.error(`[${campanha.id}] Erro no contato ${contato.nomeContato}:`, error);
-    }
-
-    contato.ultimaTentativa = Date.now();
-    resultados.logs.push({ ...contato });
-
-    // ATUALIZAR PROGRESSO A CADA MENSAGEM ENVIADA
-    progresso.contatosProcessados++;
-    progresso.ultimaAtualizacao = Date.now();
-    progresso.mensagemStatus = `Enviado para ${contato.nomeContato} (${progresso.contatosProcessados}/${progresso.totalContatos})`;
-    
-    // Emitir progresso individual (WebSocket)
-    emitirProgresso(wsManager, progresso);
-    
-    // ATUALIZAR TAMBÉM NO BANCO IMEDIATAMENTE para polling
-    await atualizarEstatisticasEmTempRoeal(campanhaId, progresso, cliente, idInstancia);
-
-    console.log(`[${campanha.id}] Progresso atualizado: ${progresso.contatosProcessados}/${progresso.totalContatos} (${(progresso.contatosProcessados / progresso.totalContatos * 100).toFixed(1)}%)`);
-
-    // Delay entre mensagens dentro do lote - com verificação ASSÍNCRONA
-    if (i < lote.length - 1) {
-      const delayAleatorio = gerarDelayAleatorio();
-      console.log(`[${campanha.id}] Aguardando ${delayAleatorio}ms antes da próxima mensagem...`);
-      
-      // Verificar durante o delay se deve parar
-      const delayStep = 500; // Verificar a cada 500ms
-      for (let elapsed = 0; elapsed < delayAleatorio; elapsed += delayStep) {
-        if (await devePararCampanha(campanhaId, cliente, idInstancia)) {
-          console.log(`[${campanha.id}] 🛑 INTERROMPENDO DURANTE DELAY ENTRE MENSAGENS`);
-          break;
-        }
-        await delay(Math.min(delayStep, delayAleatorio - elapsed));
-      }
-    }
-  }
-
-  return resultados;
+  return { tokenInstancia, clientToken };
 }
 
-async function atualizarEstatisticasEmTempRoeal(campanhaId: string, progresso: ProgressoEnvio, cliente: string, idInstancia: string) {
-  try {
-    const campanhaPath = `/empresas/${cliente}/produtos/zcampanha/instancias/${idInstancia}/campanhas`;
-    const campanhaRef = dbAdmin.collection(campanhaPath).doc(campanhaId);
-    
-    // Calcular percentual
-    const percentualConcluido = progresso.totalContatos > 0 
-      ? (progresso.contatosProcessados / progresso.totalContatos) * 100 
-      : 0;
-    
-    // Atualizar apenas as estatísticas essenciais para o progresso
-    await campanhaRef.update({
-      'estatisticas.enviados': progresso.contatosProcessados,
-      'estatisticas.sucessos': progresso.sucessos,
-      'estatisticas.erros': progresso.erros,
-      'estatisticas.percentualSucesso': progresso.sucessos > 0 ? (progresso.sucessos / progresso.contatosProcessados) * 100 : 0,
-      ultimaAtualizacao: progresso.ultimaAtualizacao
-    });
-    
-    console.log(`[${campanhaId}] Estatísticas em tempo real atualizadas no banco: ${percentualConcluido.toFixed(1)}%`);
-    
-  } catch (error) {
-    console.error(`[${campanhaId}] Erro ao atualizar estatísticas em tempo real:`, error);
+async function atualizarLogsCampanha(campanhaRef: FirebaseDocRef, logs: LogEnvio[]) {
+  const campanhaDoc = await campanhaRef.get();
+  const campanha = campanhaDoc.data() as Campanha;
+  
+  const logsAtualizados = campanha.logs.map(logExistente => {
+    const logAtualizado = logs.find(l => l.contatoId === logExistente.contatoId);
+    return logAtualizado || logExistente;
+  });
+
+  const estatisticas = {
+    totalContatos: logsAtualizados.length,
+    pendentes: logsAtualizados.filter(l => l.status === 'pendente').length,
+    enviados: logsAtualizados.filter(l => l.status !== 'pendente').length,
+    sucessos: logsAtualizados.filter(l => l.status === 'sucesso').length,
+    erros: logsAtualizados.filter(l => l.status === 'erro').length,
+    percentualSucesso: 0
+  };
+  
+  if (estatisticas.enviados > 0) {
+    estatisticas.percentualSucesso = (estatisticas.sucessos / estatisticas.enviados) * 100;
   }
+
+  await campanhaRef.update({
+    logs: logsAtualizados,
+    estatisticas
+  });
+}
+
+async function finalizarCampanha(campanhaRef: FirebaseDocRef, progresso: ProgressoEnvio) {
+  const agora = Date.now();
+  
+  const campanhaDoc = await campanhaRef.get();
+  const campanhaAtual = campanhaDoc.data() as Campanha;
+  
+  const logsPendentes = campanhaAtual.logs.filter(log => 
+    log.status === 'pendente' || (log.status === 'erro' && log.tentativas < CONFIG_ENVIO.MAX_TENTATIVAS_CONTATO)
+  );
+  
+  const statusFinal: StatusCampanha = logsPendentes.length === 0 ? 'concluida' : 'pausada';
+  
+  console.log(`[${progresso.campanhaId}] FINALIZANDO: ${logsPendentes.length} contatos pendentes restantes`);
+  console.log(`[${progresso.campanhaId}] STATUS FINAL: ${statusFinal}`);
+  
+  progresso.status = statusFinal;
+  progresso.mensagemStatus = statusFinal === 'concluida' 
+    ? `Campanha finalizada! ${progresso.sucessos} sucessos, ${progresso.erros} erros`
+    : `Campanha pausada com ${logsPendentes.length} contatos pendentes`;
+  progresso.ultimaAtualizacao = agora;
+
+  const updateData: Record<string, unknown> = {
+    status: statusFinal,
+    ultimaAtualizacao: agora
+  };
+
+  if (statusFinal === 'concluida') {
+    updateData.dataConclusao = agora;
+  }
+
+  await campanhaRef.update(updateData);
+  
+  console.log(`[${progresso.campanhaId}] Campanha finalizada com status: ${statusFinal}`);
+}
+
+function calcularEstimativaTermino(totalContatos: number): number {
+  const delayMedioMensagem = (CONFIG_ENVIO.DELAY_MINIMO_MENSAGEM + CONFIG_ENVIO.DELAY_MAXIMO_MENSAGEM) / 2;
+  const tempoMensagens = totalContatos * delayMedioMensagem;
+  const numeroLotes = Math.ceil(totalContatos / CONFIG_ENVIO.TAMANHO_LOTE);
+  const tempoLotes = (numeroLotes - 1) * CONFIG_ENVIO.DELAY_ENTRE_LOTES;
+  
+  return Date.now() + tempoMensagens + tempoLotes + 60000;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function obterConteudoComVariacao(
@@ -658,7 +899,7 @@ function obterConteudoComVariacao(
   return { conteudo: conteudoOriginal, variacaoInfo: null };
 }
 
-// Funções auxiliares
+// Função auxiliar para obter índice de variação com distribuição ponderada
 function obterIndiceVariacaoAleatoria(totalVariacoes: number, indiceContato: number): number {
   if (totalVariacoes <= 1) {
     return 0;
@@ -695,121 +936,14 @@ function obterIndiceVariacaoAleatoria(totalVariacoes: number, indiceContato: num
   return 1 + Math.floor(random * (totalVariacoes - 1));
 }
 
-function dividirEmLotes<T>(array: T[], tamanhoLote: number): T[][] {
-  const lotes: T[][] = [];
-  for (let i = 0; i < array.length; i += tamanhoLote) {
-    lotes.push(array.slice(i, i + tamanhoLote));
-  }
-  return lotes;
-}
-
-function gerarDelayAleatorio(): number {
-  return Math.floor(
-    Math.random() * (CONFIG_ENVIO.DELAY_MAXIMO_MENSAGEM - CONFIG_ENVIO.DELAY_MINIMO_MENSAGEM) + 
-    CONFIG_ENVIO.DELAY_MINIMO_MENSAGEM
-  );
-}
-
-function calcularEstimativaTermino(totalContatos: number): number {
-  const delayMedioMensagem = (CONFIG_ENVIO.DELAY_MINIMO_MENSAGEM + CONFIG_ENVIO.DELAY_MAXIMO_MENSAGEM) / 2;
-  const tempoMensagens = totalContatos * delayMedioMensagem;
-  const numeroLotes = Math.ceil(totalContatos / CONFIG_ENVIO.TAMANHO_LOTE);
-  const tempoLotes = (numeroLotes - 1) * CONFIG_ENVIO.DELAY_ENTRE_LOTES;
+// Função auxiliar para extrair parâmetros da referência do Firestore
+function extrairParametrosDaRef(campanhaRef: FirebaseDocRef): { cliente: string; idInstancia: string } {
+  // Exemplo de path: /empresas/cliente/produtos/zcampanha/instancias/idInstancia/campanhas/campanhaId
+  const pathParts = campanhaRef.path.split('/');
+  const cliente = pathParts[1];
+  const idInstancia = pathParts[5];
   
-  return Date.now() + tempoMensagens + tempoLotes + 60000; // +1 minuto de margem
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function buscarTokens(cliente: string, idInstancia: string) {
-  // Buscar token da instância
-  const instanciasRef = dbAdmin.collection(`/empresas/${cliente}/produtos/zcampanha/instancias`);
-  const instanciasSnap = await instanciasRef.get();
-  
-  let tokenInstancia = null;
-  instanciasSnap.docs.forEach(doc => {
-    const data = doc.data();
-    if (data.idInstancia === idInstancia) {
-      tokenInstancia = data.tokenInstancia;
-    }
-  });
-
-  // Buscar client token
-  const clienteRef = dbAdmin.doc(`/empresas/${cliente}/produtos/zcampanha`);
-  const clienteDoc = await clienteRef.get();
-  const clientToken = clienteDoc.data()?.['Client-Token'];
-
-  return { tokenInstancia, clientToken };
-}
-
-async function atualizarLogsCampanha(campanhaRef: FirebaseDocRef, logs: LogEnvio[]) {
-  const campanhaDoc = await campanhaRef.get();
-  const campanha = campanhaDoc.data() as Campanha;
-  
-  // Atualizar logs existentes
-  const logsAtualizados = campanha.logs.map(logExistente => {
-    const logAtualizado = logs.find(l => l.contatoId === logExistente.contatoId);
-    return logAtualizado || logExistente;
-  });
-
-  // Calcular estatísticas atualizadas
-  const estatisticas = {
-    totalContatos: logsAtualizados.length,
-    pendentes: logsAtualizados.filter(l => l.status === 'pendente').length,
-    enviados: logsAtualizados.filter(l => l.status !== 'pendente').length,
-    sucessos: logsAtualizados.filter(l => l.status === 'sucesso').length,
-    erros: logsAtualizados.filter(l => l.status === 'erro').length,
-    percentualSucesso: 0
-  };
-  
-  if (estatisticas.enviados > 0) {
-    estatisticas.percentualSucesso = (estatisticas.sucessos / estatisticas.enviados) * 100;
-  }
-
-  await campanhaRef.update({
-    logs: logsAtualizados,
-    estatisticas
-  });
-}
-
-async function finalizarCampanha(campanhaRef: FirebaseDocRef, progresso: ProgressoEnvio) {
-  const agora = Date.now();
-  
-  // CORREÇÃO: Verificar se REALMENTE deve finalizar como concluída
-  const campanhaDoc = await campanhaRef.get();
-  const campanhaAtual = campanhaDoc.data() as Campanha;
-  
-  // Calcular estatísticas finais
-  const logsPendentes = campanhaAtual.logs.filter(log => 
-    log.status === 'pendente' || (log.status === 'erro' && log.tentativas < CONFIG_ENVIO.MAX_TENTATIVAS_CONTATO)
-  );
-  
-  const statusFinal: StatusCampanha = logsPendentes.length === 0 ? 'concluida' : 'pausada';
-  
-  console.log(`[${progresso.campanhaId}] FINALIZANDO: ${logsPendentes.length} contatos pendentes restantes`);
-  console.log(`[${progresso.campanhaId}] STATUS FINAL: ${statusFinal}`);
-  
-  progresso.status = statusFinal;
-  progresso.mensagemStatus = statusFinal === 'concluida' 
-    ? `Campanha finalizada! ${progresso.sucessos} sucessos, ${progresso.erros} erros`
-    : `Campanha pausada com ${logsPendentes.length} contatos pendentes`;
-  progresso.ultimaAtualizacao = agora;
-
-  const updateData: Record<string, unknown> = {
-    status: statusFinal,
-    ultimaAtualizacao: agora
-  };
-
-  // Só marcar como concluída se realmente não há pendências
-  if (statusFinal === 'concluida') {
-    updateData.dataConclusao = agora;
-  }
-
-  await campanhaRef.update(updateData);
-  
-  console.log(`[${progresso.campanhaId}] Campanha finalizada com status: ${statusFinal}`);
+  return { cliente, idInstancia };
 }
 
 function emitirProgresso(wsManager: WebSocketManager, progresso: ProgressoEnvio) {
@@ -1064,7 +1198,7 @@ function gerarVariacoesMensagemSimples(textoOriginal: string): string[] {
         variacoes.push(variacao);
       }
     } catch (error) {
-      console.error('Erro: ', error);
+      console.error('Erro na combinação:', error);
     }
   });
 
@@ -1072,20 +1206,9 @@ function gerarVariacoesMensagemSimples(textoOriginal: string): string[] {
   return variacoes.slice(0, 8);
 }
 
-// Função auxiliar para extrair parâmetros da referência do Firestore
-function extrairParametrosDaRef(campanhaRef: FirebaseDocRef): { cliente: string; idInstancia: string } {
-  // Exemplo de path: /empresas/cliente/produtos/zcampanha/instancias/idInstancia/campanhas/campanhaId
-  const pathParts = campanhaRef.path.split('/');
-  const cliente = pathParts[1];
-  const idInstancia = pathParts[5];
-  
-  return { cliente, idInstancia };
-}
-
-// Função auxiliar para obter a URL base
 function getBaseUrl(): string {
   if (process.env.NODE_ENV === 'production') {
-    return process.env.NEXT_PUBLIC_APP_URL || 'https://your-domain.com';
+    return process.env.NEXT_PUBLIC_APP_URL || 'https://injectbox.com.br';
   }
   return 'http://localhost:3000';
 }

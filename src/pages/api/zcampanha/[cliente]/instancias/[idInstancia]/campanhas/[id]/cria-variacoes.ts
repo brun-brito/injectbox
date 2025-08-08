@@ -35,6 +35,10 @@ const waitForRunCompletion = async (threadId: string, runId: string) => {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const startTime = Date.now();
+  
+  console.log(`🎯 [VARIACOES] INICIANDO - Produção: ${process.env.NODE_ENV === 'production'}`);
+  
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método não permitido' });
   }
@@ -42,41 +46,48 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { cliente, idInstancia, id } = req.query;
   const { texto } = req.body;
   
+  console.log(`📝 [${id}] Dados recebidos: texto=${texto?.length || 0} chars`);
+  
   if (!cliente || !idInstancia || !id || 
       typeof cliente !== 'string' || typeof idInstancia !== 'string' || typeof id !== 'string') {
     return res.status(400).json({ error: 'Parâmetros inválidos' });
   }
 
   if (!texto || typeof texto !== 'string' || texto.trim().length === 0) {
+    console.warn(`⚠️ [${id}] Texto vazio ou inválido`);
     return res.status(400).json({ error: 'Texto é obrigatório' });
   }
 
   // Validação adicional: texto deve ter mais de 30 caracteres
   if (texto.trim().length <= 30) {
+    console.log(`📏 [${id}] Texto muito curto (${texto.trim().length} <= 30), retornando original`);
     return res.status(200).json({ 
       message: 'Texto muito curto para gerar variações com IA',
       variacoes: [texto.trim()], // Retornar apenas o texto original
-      usouFallback: true
+      usouFallback: true,
+      tempoExecucao: Date.now() - startTime
     });
   }
 
   // Verificar se a API key está configurada
   if (!process.env.OPENAI_API_KEY) {
-    console.warn(`[${id}] OpenAI API key não configurada`);
+    console.warn(`🔑 [${id}] OpenAI API key não configurada`);
     return res.status(200).json({ 
       message: 'OpenAI não configurada, usando texto original',
       variacoes: [texto.trim()],
-      usouFallback: true
+      usouFallback: true,
+      tempoExecucao: Date.now() - startTime
     });
   }
 
   // VERIFICAÇÃO ADICIONAL DO ASSISTANT ID
   if (!ASSISTANT_ID) {
-    console.error(`[${id}] Assistant ID não configurado`);
+    console.error(`🤖 [${id}] Assistant ID não configurado`);
     return res.status(200).json({ 
       message: 'Assistant ID não configurado',
       variacoes: [texto.trim()],
-      usouFallback: true
+      usouFallback: true,
+      tempoExecucao: Date.now() - startTime
     });
   }
 
@@ -84,9 +95,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const docRef = dbAdmin.doc(docPath);
 
   try {
+    console.log(`🔍 [${id}] Verificando se campanha existe...`);
     const doc = await docRef.get();
     if (!doc.exists) {
-      console.error(`[${id}] ❌ Campanha não encontrada no banco`);
+      console.error(`❌ [${id}] Campanha não encontrada no banco`);
       return res.status(404).json({ error: 'Campanha não encontrada' });
     }
 
@@ -94,17 +106,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Verificar se já existem variações
     if (campanha.conteudo.variacoes && campanha.conteudo.variacoes.length > 1) {
-      console.log(`[${id}] ✅ Variações já existem (${campanha.conteudo.variacoes.length})`);
+      console.log(`✅ [${id}] Variações já existem (${campanha.conteudo.variacoes.length})`);
       return res.status(200).json({ 
         message: 'Variações já existem',
         variacoes: campanha.conteudo.variacoes,
-        usouCache: true
+        usouCache: true,
+        tempoExecucao: Date.now() - startTime
       });
     }
 
-    console.log(`[${id}] 🚀 Iniciando geração com OpenAI...`);
+    console.log(`🚀 [${id}] Iniciando geração com OpenAI...`);
 
-    // Tentar gerar variações com OpenAI (com retry)
+    // Tentar gerar variações com OpenAI (com retry e timeout)
     let variacoes: string[] = [];
     let tentativa = 0;
     let ultimoErro: Error | null = null;
@@ -113,18 +126,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       tentativa++;
       
       try {
-        console.log(`[${id}] 🔄 Tentativa ${tentativa}/${CONFIG_OPENAI.MAX_TENTATIVAS} com OpenAI...`);
+        console.log(`🔄 [${id}] Tentativa ${tentativa}/${CONFIG_OPENAI.MAX_TENTATIVAS} com OpenAI...`);
         
-        variacoes = await gerarVariacoesComAssistente(texto);
+        // NOVO: Verificar tempo limite total
+        const tempoDecorrido = Date.now() - startTime;
+        if (tempoDecorrido > 35000) { // 35 segundos limite
+          console.warn(`⏱️ [${id}] Tempo limite excedido (${tempoDecorrido}ms), usando fallback`);
+          throw new Error('Timeout da função');
+        }
+        
+        // Usar Promise.race para timeout individual
+        variacoes = await Promise.race([
+          gerarVariacoesComAssistente(texto),
+          new Promise<string[]>((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout OpenAI')), CONFIG_OPENAI.TIMEOUT_MS)
+          )
+        ]);
         
         if (variacoes.length > 0) {
-          console.log(`[${id}] ✅ OpenAI gerou ${variacoes.length} variações com sucesso`);
+          console.log(`✅ [${id}] OpenAI gerou ${variacoes.length} variações com sucesso`);
           break;
         }
         
       } catch (error) {
         ultimoErro = error instanceof Error ? error : new Error('Erro desconhecido');
-        console.warn(`[${id}] ❌ Tentativa ${tentativa} falhou:`, ultimoErro.message);
+        console.warn(`❌ [${id}] Tentativa ${tentativa} falhou:`, ultimoErro.message);
         
         if (tentativa < CONFIG_OPENAI.MAX_TENTATIVAS) {
           await new Promise(resolve => setTimeout(resolve, CONFIG_OPENAI.INTERVALO_TENTATIVAS));
@@ -134,40 +160,47 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Se não conseguiu gerar variações, retornar apenas o texto original
     if (variacoes.length === 0) {
-      console.warn(`[${id}] 💥 Todas as tentativas falharam, retornando texto original`);
+      console.warn(`💥 [${id}] Todas as tentativas falharam, retornando texto original`);
       variacoes = [texto.trim()];
       
       return res.status(200).json({ 
         message: 'Falha ao gerar variações com OpenAI, usando texto original',
         variacoes,
         usouFallback: true,
-        erro: ultimoErro?.message
+        erro: ultimoErro?.message,
+        tentativas: tentativa,
+        tempoExecucao: Date.now() - startTime
       });
     }
 
     // Salvar variações no documento da campanha
-    console.log(`[${id}] 💾 Salvando ${variacoes.length} variações no banco...`);
+    console.log(`💾 [${id}] Salvando ${variacoes.length} variações no banco...`);
     await docRef.update({
       'conteudo.variacoes': variacoes
     });
 
-    console.log(`[${id}] ✅ Variações salvas com sucesso!`);
+    const tempoTotal = Date.now() - startTime;
+    console.log(`✅ [${id}] Variações salvas com sucesso! (${tempoTotal}ms)`);
+    
     return res.status(200).json({ 
       message: 'Variações criadas com sucesso!',
       total: variacoes.length,
       variacoes,
-      tentativas: tentativa
+      tentativas: tentativa,
+      tempoExecucao: tempoTotal
     });
 
   } catch (error) {
-    console.error(`[${id}] 💥 Erro geral no handler:`, error);
+    const tempoTotal = Date.now() - startTime;
+    console.error(`💥 [${id}] Erro geral no handler (${tempoTotal}ms):`, error);
     const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
     
     return res.status(500).json({ 
       error: 'Falha ao gerar variações da mensagem',
       details: errorMessage,
       variacoes: [texto.trim()], // Fallback para o texto original
-      usouFallback: true
+      usouFallback: true,
+      tempoExecucao: tempoTotal
     });
   }
 }

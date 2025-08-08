@@ -1,8 +1,29 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "src/pages/api/zcampanha/[cliente]/instancias/[idInstancia]/campanhas/[id]/iniciar-envio.ts": {
-      "maxDuration": 60
+    "pages/api/zcampanha/**/*": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "pages/api/zcampanha/[cliente]/instancias/[idInstancia]/campanhas/[id]/iniciar-envio.js": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "pages/api/zcampanha/[cliente]/instancias/[idInstancia]/campanhas/[id]/cria-variacoes.js": {
+      "maxDuration": 45,
+      "memory": 1024
+    },
+    "pages/api/zcampanha/[cliente]/instancias/[idInstancia]/campanhas/[id]/controle.js": {
+      "maxDuration": 30,
+      "memory": 512
+    },
+    "pages/api/zcampanha/[cliente]/instancias/[idInstancia]/campanhas/[id]/status.js": {
+      "maxDuration": 15,
+      "memory": 512
+    },
+    "pages/api/health/**/*": {
+      "maxDuration": 30,
+      "memory": 512
     }
-  },
-  "crons": []
+  }
 }

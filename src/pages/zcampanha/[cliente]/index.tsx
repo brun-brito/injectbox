@@ -6,6 +6,7 @@ import { auth } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { withProdutoDisponivel } from '@/components/withProdutoDisponivel';
 import styles from '@/styles/ZCampanhaLogin.module.css';
+import { FiAlertTriangle } from 'react-icons/fi';
 
 type Props = {
   cliente: string;
@@ -148,7 +149,7 @@ const ZCampanhaHome = ({ cliente }: Props) => {
               fontSize: '14px',
               fontWeight: '600'
             }}>
-              <span>⚠️</span>
+              <span><FiAlertTriangle/></span>
               Faça login com uma conta que tenha acesso a este cliente
             </div>
           </div>
