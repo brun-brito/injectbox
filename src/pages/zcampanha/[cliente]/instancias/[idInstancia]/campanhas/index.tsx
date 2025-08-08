@@ -367,6 +367,7 @@ const CampanhasPage = () => {
         conteudo = { 
           tipo: 'botoes', 
           texto: processarQuebrasLinha(textoMensagem),
+          imagem: imagemBase64 || '',
           botoes: botoesAcao
         };
         break;
@@ -1529,13 +1530,25 @@ const CampanhasPage = () => {
                     
                     {modalDetalhes.conteudo.tipo === 'botoes' && (
                       <div className="preview-botoes">
-                        <div className="texto-botoes">
-                          <div 
-                            className="texto-principal"
-                            dangerouslySetInnerHTML={{ __html: renderizarTextoComVariaveis(modalDetalhes.conteudo.texto || '') }}
-                            style={{ whiteSpace: 'pre-wrap' }}
-                          />
-                        </div>
+                        {modalDetalhes.conteudo.imagem && (
+                          <div className="imagem-container">
+                            <img
+                              src={modalDetalhes.conteudo.imagem}
+                              alt="Imagem da campanha"
+                              className="preview-img-detalhes"
+                            />
+                            {modalDetalhes.conteudo.texto && (
+                              <div className="texto-botoes">
+                                <strong>Legenda:</strong>
+                                <div
+                                  className="texto-principal"
+                                  dangerouslySetInnerHTML={{ __html: renderizarTextoComVariaveis(modalDetalhes.conteudo.texto || '') }}
+                                  style={{ whiteSpace: 'pre-wrap' }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        )}
                         
                         {modalDetalhes.conteudo.botoes && modalDetalhes.conteudo.botoes.length > 0 && (
                           <div className="botoes-container">

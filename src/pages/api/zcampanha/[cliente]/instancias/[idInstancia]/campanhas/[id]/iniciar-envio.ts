@@ -275,9 +275,22 @@ async function processarLoteSimplificado(
         contato.status = 'enviando';
         contato.timestampEnvio = inicioEnvio;
         
+        // NOVO: Obter variação para qualquer tipo de mensagem
+        const { conteudo: conteudoParaEnvio, variacaoInfo } = obterConteudoComVariacao(
+          campanha.conteudo, 
+          campanha.conteudo.variacoes || [campanha.conteudo.texto || ''], 
+          i, 
+          i
+        );
+
+        // NOVO: Salvar variação usada no log
+        if (variacaoInfo) {
+          contato.variacaoUsada = variacaoInfo;
+        }
+        
         // Enviar mensagem com tipo correto
         const resultado = await Promise.race([
-          sender.enviarMensagem(contato, campanha.conteudo as ConteudoMensagem),
+          sender.enviarMensagem(contato, conteudoParaEnvio as ConteudoMensagem),
           new Promise<ResultadoEnvio>((_, reject) => 
             setTimeout(() => reject(new Error('Timeout individual')), CONFIG_ENVIO.TIMEOUT_REQUISICAO)
           )
@@ -441,12 +454,16 @@ async function processarLoteSimples(
       contato.timestampEnvio = inicioEnvio;
       
       // Escolher variação
-      const { conteudo: conteudoParaEnvio } = obterConteudoComVariacao(
+      const { conteudo: conteudoParaEnvio, variacaoInfo } = obterConteudoComVariacao(
         campanha.conteudo, 
         variacoes, 
         i, 
         progresso.contatosProcessados + i
       );
+
+      if (variacaoInfo) {
+        contato.variacaoUsada = variacaoInfo;
+      }
       
       // Enviar mensagem com timeout e tipo correto
       const resultado = await Promise.race([
@@ -533,9 +550,22 @@ async function processarModoExpress(
         contato.status = 'enviando';
         contato.timestampEnvio = inicioEnvio;
         
+        // NOVO: Obter variação mesmo no modo express
+        const { conteudo: conteudoParaEnvio, variacaoInfo } = obterConteudoComVariacao(
+          campanha.conteudo, 
+          campanha.conteudo.variacoes || [campanha.conteudo.texto || ''], 
+          i, 
+          i
+        );
+
+        // NOVO: Salvar variação usada no log
+        if (variacaoInfo) {
+          contato.variacaoUsada = variacaoInfo;
+        }
+        
         // Timeout ainda mais agressivo com tipo correto
         const resultado = await Promise.race([
-          sender.enviarMensagem(contato, campanha.conteudo as ConteudoMensagem),
+          sender.enviarMensagem(contato, conteudoParaEnvio as ConteudoMensagem),
           new Promise<ResultadoEnvio>((_, reject) => 
             setTimeout(() => reject(new Error('Timeout express')), 3000)
           )
@@ -822,6 +852,17 @@ function obterConteudoComVariacao(
   // Para mensagens de texto
   if (tipoMensagem === 'texto') {
     if (!Array.isArray(variacoes) || variacoes.length === 0) {
+      // Se não tem variações mas tem texto original
+      if (conteudoOriginal.texto) {
+        return {
+          conteudo: conteudoOriginal,
+          variacaoInfo: {
+            indice: 0,
+            conteudo: String(conteudoOriginal.texto),
+            tipo: 'texto' as const
+          }
+        };
+      }
       console.log(`[DEBUG] Texto sem variações disponíveis`);
       return { conteudo: conteudoOriginal, variacaoInfo: null };
     }
@@ -844,13 +885,14 @@ function obterConteudoComVariacao(
     };
   }
   
-  // Para mensagens de imagem com legenda
-  if (tipoMensagem === 'imagem' && conteudoOriginal.legenda) {
+  // Para mensagens de imagem
+  if (tipoMensagem === 'imagem') {
+    // Verificar se tem variações de legenda
     const variacoesLegenda = Array.isArray(conteudoOriginal.variacoesLegenda) 
       ? conteudoOriginal.variacoesLegenda as string[]
-      : [String(conteudoOriginal.legenda)];
+      : (conteudoOriginal.legenda ? [String(conteudoOriginal.legenda)] : []);
     
-    if (variacoesLegenda.length > 1) {
+    if (variacoesLegenda.length > 0) {
       const indiceVariacao = obterIndiceVariacaoAleatoria(variacoesLegenda.length, indiceGlobal);
       const legendaVariada = variacoesLegenda[indiceVariacao];
 
@@ -859,7 +901,9 @@ function obterConteudoComVariacao(
       return {
         conteudo: {
           ...conteudoOriginal,
-          legenda: legendaVariada
+          legenda: legendaVariada,
+          // NOVO: Preservar o campo imagem quando há variação de legenda
+          imagem: conteudoOriginal.imagem
         },
         variacaoInfo: {
           indice: indiceVariacao,
@@ -868,11 +912,52 @@ function obterConteudoComVariacao(
         }
       };
     }
+    
+    // Se não tem variações mas tem legenda original
+    if (conteudoOriginal.legenda) {
+      return {
+        conteudo: {
+          ...conteudoOriginal,
+          // NOVO: Preservar o campo imagem quando não há variação
+          imagem: conteudoOriginal.imagem
+        },
+        variacaoInfo: {
+          indice: 0,
+          conteudo: String(conteudoOriginal.legenda),
+          tipo: 'legenda' as const
+        }
+      };
+    }
+
+    // Se não tem legenda, registrar como imagem sem legenda
+    return {
+      conteudo: {
+        ...conteudoOriginal,
+        // NOVO: Preservar o campo imagem mesmo sem legenda
+        imagem: conteudoOriginal.imagem
+      },
+      variacaoInfo: {
+        indice: 0,
+        conteudo: 'Imagem sem legenda',
+        tipo: 'legenda' as const
+      }
+    };
   }
   
   // Para mensagens com botões
   if (tipoMensagem === 'botoes') {
     if (!Array.isArray(variacoes) || variacoes.length === 0) {
+      // Se não tem variações mas tem texto original
+      if (conteudoOriginal.texto) {
+        return {
+          conteudo: conteudoOriginal,
+          variacaoInfo: {
+            indice: 0,
+            conteudo: String(conteudoOriginal.texto),
+            tipo: 'texto' as const
+          }
+        };
+      }
       console.log(`[DEBUG] Botões sem variações disponíveis`);
       return { conteudo: conteudoOriginal, variacaoInfo: null };
     }
@@ -895,11 +980,18 @@ function obterConteudoComVariacao(
     };
   }
 
-  console.log(`[DEBUG] Retornando conteúdo original - tipo: ${tipoMensagem}`);
-  return { conteudo: conteudoOriginal, variacaoInfo: null };
+  // Fallback para tipos não mapeados (não deve acontecer com os 3 tipos suportados)
+  console.log(`[DEBUG] Tipo de mensagem não suportado: ${tipoMensagem}`);
+  return { 
+    conteudo: conteudoOriginal, 
+    variacaoInfo: {
+      indice: 0,
+      conteudo: `Mensagem do tipo: ${tipoMensagem}`,
+      tipo: 'texto' as const // Usar 'texto' como fallback
+    }
+  };
 }
 
-// Função auxiliar para obter índice de variação com distribuição ponderada
 function obterIndiceVariacaoAleatoria(totalVariacoes: number, indiceContato: number): number {
   if (totalVariacoes <= 1) {
     return 0;

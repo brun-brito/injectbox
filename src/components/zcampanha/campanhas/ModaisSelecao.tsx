@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import * as Icons from 'react-icons/fi';
 import * as Type from "@/types/Campanha";
 
@@ -44,6 +44,9 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
   setGruposSelecionados,
   aplicarSelecaoGrupos,
 }) => {
+  // Estado local para busca de grupos
+  const [buscaGrupos, setBuscaGrupos] = useState('');
+
   // Filtrar e ordenar contatos no modal
   const contatosFiltradosOrdenados = useMemo(() => {
     let resultado = [...contatos];
@@ -63,6 +66,24 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
     );
   }, [contatos, buscaContatos]);
 
+  // NOVO: Filtrar e ordenar grupos no modal
+  const gruposFiltradosOrdenados = useMemo(() => {
+    let resultado = [...grupos];
+    
+    // Filtrar por busca se houver termo
+    if (buscaGrupos.trim()) {
+      const termoBusca = buscaGrupos.toLowerCase().trim();
+      resultado = resultado.filter(grupo => 
+        grupo.nome.toLowerCase().includes(termoBusca)
+      );
+    }
+    
+    // Ordenar alfabeticamente por nome
+    return resultado.sort((a, b) => 
+      a.nome.toLowerCase().localeCompare(b.nome.toLowerCase())
+    );
+  }, [grupos, buscaGrupos]);
+
   // Verificar se todos os contatos filtrados estão selecionados
   const todosSelecionados = useMemo(() => {
     if (contatosFiltradosOrdenados.length === 0) return false;
@@ -77,6 +98,21 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
       contatosSelecionados.some(selecionado => selecionado.id === contato.id)
     );
   }, [contatosFiltradosOrdenados, contatosSelecionados]);
+
+  // NOVO: Verificar se todos os grupos filtrados estão selecionados
+  const todosGruposSelecionados = useMemo(() => {
+    if (gruposFiltradosOrdenados.length === 0) return false;
+    return gruposFiltradosOrdenados.every(grupo => 
+      gruposSelecionados.includes(grupo.id)
+    );
+  }, [gruposFiltradosOrdenados, gruposSelecionados]);
+
+  // NOVO: Verificar se alguns grupos filtrados estão selecionados
+  const algunsGruposSelecionados = useMemo(() => {
+    return gruposFiltradosOrdenados.some(grupo => 
+      gruposSelecionados.includes(grupo.id)
+    );
+  }, [gruposFiltradosOrdenados, gruposSelecionados]);
 
   // Função para marcar/desmarcar todos os contatos filtrados
   const toggleTodosContatos = () => {
@@ -95,10 +131,33 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
     }
   };
 
+  // NOVO: Função para marcar/desmarcar todos os grupos filtrados
+  const toggleTodosGrupos = () => {
+    if (todosGruposSelecionados) {
+      // Desmarcar todos os grupos filtrados
+      const idsParaRemover = new Set(gruposFiltradosOrdenados.map(g => g.id));
+      setGruposSelecionados(
+        gruposSelecionados.filter(grupoId => !idsParaRemover.has(grupoId))
+      );
+    } else {
+      // Marcar todos os grupos filtrados que ainda não estão selecionados
+      const novosGrupos = gruposFiltradosOrdenados
+        .filter(grupo => !gruposSelecionados.includes(grupo.id))
+        .map(grupo => grupo.id);
+      setGruposSelecionados([...gruposSelecionados, ...novosGrupos]);
+    }
+  };
+
   // Função para limpar busca quando modal for fechado
   const fecharModalContatos = () => {
     setModalContatos(false);
     setBuscaContatos('');
+  };
+
+  // NOVO: Função para limpar busca quando modal de grupos for fechado
+  const fecharModalGrupos = () => {
+    setModalGrupos(false);
+    setBuscaGrupos('');
   };
 
   return (
@@ -220,28 +279,100 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
 
       {/* Modal de seleção de grupos */}
       {modalGrupos && (
-        <div className="modal-overlay" onClick={() => setModalGrupos(false)}>
+        <div className="modal-overlay" onClick={fecharModalGrupos}>
           <div className="modal-content modal-grupos" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Selecionar Grupos</h3>
-              <button onClick={() => setModalGrupos(false)} className="btn-fechar-modal">
+              <button onClick={fecharModalGrupos} className="btn-fechar-modal">
                 <Icons.FiX size={20} />
               </button>
             </div>
 
+            {/* NOVO: Barra de busca de grupos */}
+            <div className="busca-contatos-container">
+              <div className="busca-contatos-wrapper">
+                <Icons.FiSearch className="busca-contatos-icon" />
+                <input
+                  type="text"
+                  placeholder="Buscar grupos por nome..."
+                  value={buscaGrupos}
+                  onChange={e => setBuscaGrupos(e.target.value)}
+                  className="busca-contatos-input"
+                />
+                {buscaGrupos && (
+                  <button 
+                    onClick={() => setBuscaGrupos('')}
+                    className="limpar-busca-btn"
+                    title="Limpar busca"
+                  >
+                    <Icons.FiX size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* NOVO: Controles de seleção de grupos */}
+            <div className="controles-selecao">
+              <div className="info-selecao">
+                <span className="total-contatos">
+                  {gruposFiltradosOrdenados.length} grupos
+                  {buscaGrupos && ` encontrados`}
+                </span>
+                <span className="contatos-selecionados-info">
+                  {gruposSelecionados.length} selecionados
+                </span>
+              </div>
+              
+              {gruposFiltradosOrdenados.length > 0 && (
+                <div className="acoes-selecao">
+                  <label className="checkbox-todos">
+                    <input
+                      type="checkbox"
+                      checked={todosGruposSelecionados}
+                      ref={input => {
+                        if (input) input.indeterminate = !todosGruposSelecionados && algunsGruposSelecionados;
+                      }}
+                      onChange={toggleTodosGrupos}
+                    />
+                    <span className="checkbox-label">
+                      {todosGruposSelecionados ? 'Desmarcar todos' : 'Marcar todos'}
+                    </span>
+                  </label>
+                </div>
+              )}
+            </div>
+
             <div className="grupos-lista">
-              {grupos.length === 0 ? (
+              {gruposFiltradosOrdenados.length === 0 ? (
                 <div className="sem-grupos">
-                  <div className="empty-icon">
-                    <svg width="48" height="48" fill="currentColor" viewBox="0 0 24 24" opacity="0.3">
-                      <path d="M16 4c0-1.11.89-2 2-2s2 .89 2 2-.89 2-2 2-2-.89-2-2zm4 18v-6h2.5l-2.54-7.63A1.5 1.5 0 0 0 18.54 8H17c-.8 0-1.5.7-1.5 1.5v6c0 .8.7 1.5 1.5 1.5h1v5h2z"/>
-                    </svg>
-                  </div>
-                  <h4>Nenhum grupo disponível</h4>
-                  <p>Crie grupos na seção &quot;Grupos de Usuários&quot; para organizá-los aqui.</p>
+                  {buscaGrupos ? (
+                    <>
+                      <div className="empty-icon">
+                        <Icons.FiSearch size={32} opacity={0.3} />
+                      </div>
+                      <h4>Nenhum grupo encontrado</h4>
+                      <p>Nenhum grupo encontrado para &quot;{buscaGrupos}&quot;</p>
+                      <button 
+                        onClick={() => setBuscaGrupos('')}
+                        className="btn-limpar-busca-sem-resultados"
+                      >
+                        Limpar busca
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="empty-icon">
+                        <svg width="48" height="48" fill="currentColor" viewBox="0 0 24 24" opacity="0.3">
+                          <path d="M16 4c0-1.11.89-2 2-2s2 .89 2 2-.89 2-2 2-2-.89-2-2zm4 18v-6h2.5l-2.54-7.63A1.5 1.5 0 0 0 18.54 8H17c-.8 0-1.5.7-1.5 1.5v6c0 .8.7 1.5 1.5 1.5h1v5h2z"/>
+                        </svg>
+                      </div>
+                      <h4>Nenhum grupo disponível</h4>
+                      <p>Crie grupos na seção &quot;Grupos de Usuários&quot; para organizá-los aqui.</p>
+                    </>
+                  )}
                 </div>
               ) : (
-                grupos.map(grupo => {
+                gruposFiltradosOrdenados.map(grupo => {
                   const jaSelecionado = gruposSelecionados.includes(grupo.id);
                   return (
                     <label key={grupo.id} className={`grupo-checkbox ${jaSelecionado ? 'selecionado' : ''}`}>
@@ -262,7 +393,7 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
                           style={{ backgroundColor: grupo.cor }}
                         ></div>
                         <div className="grupo-details">
-                          <span className="grupo-nome">Grupo &quot;{grupo.nome}&quot;</span>
+                          <span className="grupo-nome">{grupo.nome}</span>
                           <span className="grupo-total">{grupo.totalContatos} contatos</span>
                         </div>
                         <div className="checkbox-custom">
