@@ -157,10 +157,10 @@ export class MensagemSender {
     };
 
     // Log detalhado do payload e do campo message (com \n visíveis)
-    const payloadLog = { ...payload, buttonList: { ...buttonList, image: conteudo.imagem ? '[base64 omitted]' : undefined } };
-    console.log('[MensagemSender] Payload send-button-list:', payloadLog);
-    console.log('[MensagemSender] Conteúdo do campo message (com \\n visíveis):');
-    console.log(JSON.stringify(mensagemProcessada));
+    // let payloadLog = { ...payload, buttonList: { ...buttonList, image: conteudo.imagem ? '[base64 omitted]' : undefined } };
+    // console.log('[MensagemSender] Payload send-button-list:', payloadLog);
+    // console.log('[MensagemSender] Conteúdo do campo message (com \\n visíveis):');
+    // console.log(JSON.stringify(mensagemProcessada));
 
     return await this.fazerRequisicao('send-button-list', payload);
   }
