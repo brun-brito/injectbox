@@ -73,9 +73,9 @@ export class MensagemSender {
     };
 
     // Log detalhado do payload e do campo message (com \n visíveis)
-    console.log('[MensagemSender] Payload send-text:', payload);
-    console.log('[MensagemSender] Conteúdo do campo message (com \\n visíveis):');
-    console.log(JSON.stringify(mensagemProcessada));
+    // console.log('[MensagemSender] Payload send-text:', payload);
+    // console.log('[MensagemSender] Conteúdo do campo message (com \\n visíveis):');
+    // console.log(JSON.stringify(mensagemProcessada));
 
     return await this.fazerRequisicao('send-text', payload);
   }

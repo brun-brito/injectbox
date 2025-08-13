@@ -54,6 +54,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           part.mimetype?.includes('csv') ||
           part.originalFilename?.endsWith('.xlsx') ||
           part.originalFilename?.endsWith('.xls') ||
+          part.originalFilename?.endsWith('.xlsm') ||
           part.originalFilename?.endsWith('.csv')
         );
       }

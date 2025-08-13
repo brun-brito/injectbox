@@ -63,5 +63,9 @@ export type Campanha = {
   criadoPor: string;
   estatisticas: EstatisticasCampanha;
   pausadaEm?: number;
-};
+  tempoEstimado?: number;
+  progresso?: {
+    tempoEstimado: number;
+  };
+}
 export type Contato = { id: string; nome: string; numero: string };

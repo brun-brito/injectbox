@@ -12,6 +12,7 @@ import {
 import { FirebaseDocRef } from '@/types/firebase';
 import { ConteudoComVariacao } from '@/types/api';
 import { ConteudoMensagem } from '../index';
+import { calcularTempoEstimadoTotal, formatarTempoEstimado } from '@/utils/calculaTempoEstimado';
 
 // NOVO: Configurações específicas para produção (MOVER PARA O TOPO)
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -181,6 +182,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Criar progresso inicial
     const totalLotes = Math.ceil(contatosPendentes.length / CONFIG_ENVIO.TAMANHO_LOTE);
+    const tempoEstimadoMs = calcularTempoEstimadoTotal(contatosPendentes.length);
+    const tempoEstimadoStr = formatarTempoEstimado(tempoEstimadoMs);
+
+    // Salvar tempo estimado no documento da campanha
+    await campanhaRef.update({ tempoEstimado: tempoEstimadoStr });
+
     const progresso: ProgressoEnvio = {
       campanhaId: id,
       status: 'iniciando',
@@ -192,8 +199,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       erros: 0,
       iniciadoEm: agora,
       ultimaAtualizacao: agora,
-      estimativaTermino: calcularEstimativaTermino(contatosPendentes.length),
-      mensagemStatus: 'Preparando envio...'
+      estimativaTermino: Date.now() + tempoEstimadoMs,
+      mensagemStatus: `Preparando envio... Tempo estimado: ${tempoEstimadoStr}`
     };
 
     console.log(`📤 [${id}] Respondendo ao cliente: ${contatosPendentes.length} contatos, ${totalLotes} lotes`);
@@ -204,6 +211,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       progresso,
       totalContatos: contatosPendentes.length,
       totalLotes,
+      tempoEstimado: tempoEstimadoStr,
       ambiente: AMBIENTE,
       timeout: CONFIG_ENVIO.TIMEOUT_TOTAL_FUNCAO
     });
@@ -305,6 +313,12 @@ async function processarLoteSimplificado(
 
     // Processar contatos sequencialmente com timeout rígido
     for (let i = 0; i < contatos.length; i++) {
+      // NOVO: Verificar pausa/cancelamento antes de cada envio
+      if (await devePararCampanha(campanha.id!, cliente, idInstancia)) {
+        console.log(`[${campanha.id}] Pausa/cancelamento detectado durante envio do lote. Interrompendo imediatamente.`);
+        break;
+      }
+
       const contato = contatos[i];
       const inicioEnvio = Date.now();
       
@@ -426,7 +440,7 @@ async function processarCampanhaSimplificada(
     
     console.log(`📦 [${campanhaId}] Processando lote simplificado: ${primeiroLote.length} contatos`);
     
-    const resultados = await processarLoteSimples(primeiroLote, campanhaAtualizada, sender, progresso, campanhaId);
+    const resultados = await processarLoteSimples(primeiroLote, campanhaAtualizada, sender, progresso, campanhaId, cliente, idInstancia);
     
     // Atualizar logs
     await atualizarLogsCampanha(campanhaRef, resultados.logs);
@@ -472,7 +486,9 @@ async function processarLoteSimples(
   campanha: Campanha,
   sender: MensagemSender,
   progresso: ProgressoEnvio,
-  campanhaId: string
+  campanhaId: string,
+  cliente: string,
+  idInstancia: string
 ) {
   const resultados = {
     sucessos: 0,
@@ -483,6 +499,12 @@ async function processarLoteSimples(
   const variacoes = campanha.conteudo.variacoes || [campanha.conteudo.texto || ''];
 
   for (let i = 0; i < lote.length; i++) {
+    // NOVO: Verificar pausa/cancelamento antes de cada envio
+    if (await devePararCampanha(campanhaId, cliente, idInstancia)) {
+      console.log(`[${campanhaId}] Pausa/cancelamento detectado durante envio do lote. Interrompendo imediatamente.`);
+      break;
+    }
+
     const contato = lote[i];
     const inicioEnvio = Date.now();
     
@@ -580,6 +602,12 @@ async function processarModoExpress(
 
     // Processar sem delays
     for (let i = 0; i < contatos.length; i++) {
+      // NOVO: Verificar pausa/cancelamento antes de cada envio
+      if (await devePararCampanha(campanhaId, cliente, idInstancia)) {
+        console.log(`[${campanhaId}] Pausa/cancelamento detectado durante envio do lote. Interrompendo imediatamente.`);
+        break;
+      }
+
       const contato = contatos[i];
       const inicioEnvio = Date.now();
       
@@ -689,7 +717,7 @@ async function processarCampanhaCompleta(
   
   try {
     // VERIFICAÇÃO CRÍTICA DE TIMEOUT
-    const tempoDecorrido = Date.now() - startTime;
+    let tempoDecorrido = Date.now() - startTime;
     if (tempoDecorrido > CONFIG_ENVIO.TIMEOUT_TOTAL_FUNCAO * 0.7) {
       console.warn(`⏱️ [${campanhaId}] Tempo limite próximo, mudando para processamento simplificado`);
       return processarCampanhaSimplificada(
@@ -708,9 +736,8 @@ async function processarCampanhaCompleta(
     progresso.status = 'criando-variacoes';
     progresso.mensagemStatus = 'Criando variações da mensagem...';
     progresso.ultimaAtualizacao = Date.now();
-    
     emitirProgresso(wsManager, progresso);
-    
+
     console.log(`[${campanhaId}] Criando variações da mensagem...`);
     await criarVariacoesMensagem(campanha, campanhaRef);
 
@@ -724,39 +751,84 @@ async function processarCampanhaCompleta(
     // Buscar campanha atualizada
     const campanhaDoc = await campanhaRef.get();
     const campanhaAtualizada = { id: campanhaDoc.id, ...campanhaDoc.data() } as Campanha;
-    
     if (!campanhaAtualizada.conteudo.variacoes || campanhaAtualizada.conteudo.variacoes.length === 0) {
       campanhaAtualizada.conteudo.variacoes = [campanha.conteudo.texto || ''];
     }
-    
     const variacoes = campanhaAtualizada.conteudo.variacoes;
     console.log(`[${campanhaId}] Variações disponíveis para envio: ${variacoes.length}`);
 
-    // PASSO 2: Processar envios em lotes simplificados
+    // PASSO 2: Processar envios em lotes
     progresso.status = 'processando';
     progresso.mensagemStatus = 'Enviando mensagens...';
     progresso.ultimaAtualizacao = Date.now();
-    
     emitirProgresso(wsManager, progresso);
 
-    // Processar apenas o primeiro lote em produção para evitar timeout
-    const primeiroLote = contatosPendentes.slice(0, CONFIG_ENVIO.TAMANHO_LOTE);
-    
-    console.log(`[${campanhaId}] Processando primeiro lote: ${primeiroLote.length} contatos`);
+    // NOVO: Processar todos os lotes, não apenas o primeiro
+    const totalLotes = Math.ceil(contatosPendentes.length / CONFIG_ENVIO.TAMANHO_LOTE);
+    for (let loteIdx = 0; loteIdx < totalLotes; loteIdx++) {
+      tempoDecorrido = Date.now() - startTime;
+      // Interromper antes do timeout e pausar
+      if (tempoDecorrido > CONFIG_ENVIO.TIMEOUT_TOTAL_FUNCAO * 0.9) {
+        console.warn(`[${campanhaId}] Tempo limite próximo, pausando campanha e agendando retomada`);
+        await finalizarCampanha(campanhaRef, progresso);
+        limparControleCampanha(campanhaId, cliente, idInstancia);
 
-    const sender = new MensagemSender({
-      tokenInstancia,
-      clientToken,
-      idInstancia,
-      timeout: CONFIG_ENVIO.TIMEOUT_REQUISICAO
-    });
+        // Retomar automaticamente após 5 segundos
+        setTimeout(() => {
+          fetch(`${getBaseUrl()}/api/zcampanha/${cliente}/instancias/${idInstancia}/campanhas/${campanhaId}/iniciar-envio`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          }).then(() => {
+            console.log(`[${campanhaId}] Retomada automática disparada`);
+          }).catch((err) => {
+            console.error(`[${campanhaId}] Erro ao retomar automaticamente:`, err);
+          });
+        }, 5000);
 
-    const resultados = await processarLoteSimples(primeiroLote, campanhaAtualizada, sender, progresso, campanhaId);
+        return;
+      }
 
-    // Atualizar logs no banco
-    await atualizarLogsCampanha(campanhaRef, resultados.logs);
+      // Verificar se deve parar (pausada/cancelada)
+      if (await devePararCampanha(campanhaId, cliente, idInstancia)) {
+        const statusControle = getStatusControle(campanhaId);
+        console.log(`[${campanhaId}] Campanha ${statusControle} durante envio de lotes`);
+        break;
+      }
 
-    console.log(`[${campanhaId}] Primeiro lote concluído: ${resultados.sucessos} sucessos, ${resultados.erros} erros`);
+      const inicio = loteIdx * CONFIG_ENVIO.TAMANHO_LOTE;
+      const fim = inicio + CONFIG_ENVIO.TAMANHO_LOTE;
+      const lote = contatosPendentes.slice(inicio, fim);
+
+      if (lote.length === 0) break;
+
+      progresso.loteAtual = loteIdx + 1;
+      progresso.mensagemStatus = `Enviando lote ${progresso.loteAtual} de ${totalLotes}`;
+      progresso.ultimaAtualizacao = Date.now();
+      emitirProgresso(wsManager, progresso);
+
+      console.log(`[${campanhaId}] Processando lote ${progresso.loteAtual}: ${lote.length} contatos`);
+
+      const sender = new MensagemSender({
+        tokenInstancia,
+        clientToken,
+        idInstancia,
+        timeout: CONFIG_ENVIO.TIMEOUT_REQUISICAO
+      });
+
+      const resultados = await processarLoteSimples(lote, campanhaAtualizada, sender, progresso, campanhaId, cliente, campanhaId);
+
+      // Atualizar logs no banco
+      await atualizarLogsCampanha(campanhaRef, resultados.logs);
+
+      progresso.contatosProcessados += lote.length;
+      progresso.ultimaAtualizacao = Date.now();
+      emitirProgresso(wsManager, progresso);
+
+      // Delay entre lotes, exceto após o último
+      if (loteIdx < totalLotes - 1) {
+        await delay(CONFIG_ENVIO.DELAY_ENTRE_LOTES);
+      }
+    }
 
     // PASSO 3: Finalizar ou pausar baseado nos contatos restantes
     await finalizarCampanha(campanhaRef, progresso);
@@ -766,18 +838,15 @@ async function processarCampanhaCompleta(
   } catch (error) {
     const tempoTotal = Date.now() - startTime;
     console.error(`[${campanhaId}] Erro no processamento (${tempoTotal}ms):`, error);
-    
     progresso.status = 'erro';
     progresso.mensagemStatus = `Erro: ${error instanceof Error ? error.message : 'Erro desconhecido'}`;
     progresso.ultimaAtualizacao = Date.now();
-
     wsManager.emitirErroCampanha(campanhaId, progresso.mensagemStatus);
 
     await campanhaRef.update({
       status: 'pausada' as StatusCampanha,
       ultimaAtualizacao: Date.now()
     });
-    
     limparControleCampanha(campanhaId, cliente, idInstancia);
   }
 }
@@ -873,15 +942,6 @@ async function finalizarCampanha(campanhaRef: FirebaseDocRef, progresso: Progres
   await campanhaRef.update(updateData);
   
   console.log(`[${progresso.campanhaId}] Campanha finalizada com status: ${statusFinal}`);
-}
-
-function calcularEstimativaTermino(totalContatos: number): number {
-  const delayMedioMensagem = (CONFIG_ENVIO.DELAY_MINIMO_MENSAGEM + CONFIG_ENVIO.DELAY_MAXIMO_MENSAGEM) / 2;
-  const tempoMensagens = totalContatos * delayMedioMensagem;
-  const numeroLotes = Math.ceil(totalContatos / CONFIG_ENVIO.TAMANHO_LOTE);
-  const tempoLotes = (numeroLotes - 1) * CONFIG_ENVIO.DELAY_ENTRE_LOTES;
-  
-  return Date.now() + tempoMensagens + tempoLotes + 60000;
 }
 
 function delay(ms: number): Promise<void> {

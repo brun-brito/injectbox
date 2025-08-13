@@ -883,6 +883,7 @@ const CampanhasPage = () => {
       status: Type.StatusCampanha;
       estatisticas: Type.EstatisticasCampanha;
       ultimaAtualizacao: number;
+      tempoEstimado?: string;
     } | null = null;
 
     if (campanhaAtual.estatisticas.totalContatos > 0) {
@@ -1045,6 +1046,10 @@ const CampanhasPage = () => {
             <div className="info-atualizacao">
               <small>
                 Última atualização: {new Date(dadosProgresso.ultimaAtualizacao || Date.now()).toLocaleTimeString('pt-BR')}
+              </small>
+              <br></br>
+              <small>
+                Tempo restante previsto: {dadosProgresso.tempoEstimado || 'Indeterminado'}
               </small>
             </div>
           </div>

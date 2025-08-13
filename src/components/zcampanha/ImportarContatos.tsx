@@ -29,7 +29,7 @@ const ImportarContatos: React.FC<ImportarContatosProps> = ({
   const [erro, setErro] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const formatosAceitos = '.xlsx,.xls,.csv';
+  const formatosAceitos = '.xlsx,.xls,.csv,.xlsm';
   const tamanhoMaximo = 10 * 1024 * 1024; // 10MB
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -44,8 +44,8 @@ const ImportarContatos: React.FC<ImportarContatosProps> = ({
 
     // Validar tipo
     const extensao = file.name.toLowerCase().split('.').pop();
-    if (!['xlsx', 'xls', 'csv'].includes(extensao || '')) {
-      setErro('Formato não suportado. Use: .xlsx, .xls ou .csv');
+    if (!['xlsx', 'xls', 'csv', 'xlsm'].includes(extensao || '')) {
+      setErro('Formato não suportado. Use: .xlsx, .xls, .xlsm ou .csv');
       return;
     }
 
@@ -131,7 +131,7 @@ const ImportarContatos: React.FC<ImportarContatosProps> = ({
               <div className="instrucoes">
                 <h4>Como importar:</h4>
                 <ul>
-                  <li>Use uma planilha Excel (.xlsx, .xls) ou arquivo CSV</li>
+                  <li>Use uma planilha Excel (.xlsx, .xls, .xlsm) ou arquivo CSV</li>
                   <li>Primeira coluna: <strong>Nome</strong></li>
                   <li>Segunda coluna: <strong>Numero</strong> (apenas números)</li>
                   <li>Máximo: 10MB</li>
@@ -165,7 +165,7 @@ const ImportarContatos: React.FC<ImportarContatosProps> = ({
                     <span className="upload-subtitle">
                       {arquivo 
                         ? `${(arquivo.size / 1024).toFixed(1)} KB`
-                        : 'Excel (.xlsx, .xls) ou CSV'
+                        : 'Excel (.xlsx, .xls, .xlsm) ou CSV'
                       }
                     </span>
                   </div>

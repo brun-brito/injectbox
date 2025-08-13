@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { dbAdmin } from '@/lib/firebaseAdmin';
 import { Campanha } from '../index';
+import { calcularTempoEstimadoTotal, formatarTempoEstimado } from '@/utils/calculaTempoEstimado';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -47,6 +48,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       estatisticas.percentualSucesso = (estatisticas.sucessos / estatisticas.enviados) * 100;
     }
 
+    // Calcular tempo estimado se campanha está em andamento ou pausada
+    let tempoEstimado: string | undefined;
+    if (['enviando', 'pausada'].includes(campanha.status)) {
+      const ms = calcularTempoEstimadoTotal(estatisticas.totalContatos);
+      tempoEstimado = formatarTempoEstimado(ms);
+    }
+
     const tempoResposta = Date.now() - startTime;
     
     const status = {
@@ -57,7 +65,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       dataConclusao: campanha.dataConclusao,
       ultimaAtualizacao: campanha.ultimaAtualizacao || Date.now(),
       tempoResposta,
-      ambiente: process.env.NODE_ENV
+      ambiente: process.env.NODE_ENV,
+      tempoEstimado
     };
 
     console.log(`✅ [STATUS] Campanha ${id}: ${campanha.status} (${tempoResposta}ms)`);

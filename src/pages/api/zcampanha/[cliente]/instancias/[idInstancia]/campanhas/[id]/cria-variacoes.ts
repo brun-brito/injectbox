@@ -271,7 +271,7 @@ async function gerarVariacoesComAssistente(textoOriginal: string): Promise<strin
     console.log(`[OPENAI] 🎯 Variações válidas encontradas: ${variacoesValidas.length}`);
 
     // Adicionar o texto original como primeira opção
-    const todasVariacoes = [textoComQuebrasVisiveis, ...variacoesValidas];
+    const todasVariacoes = [textoOriginal, ...variacoesValidas];
 
     return todasVariacoes;
 
