@@ -207,6 +207,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
 async function gerarVariacoesComAssistente(textoOriginal: string): Promise<string[]> {
   console.log(`[OPENAI] 🎯 Criando thread para texto: "${textoOriginal.substring(0, 50)}..."`);
+  const textoComQuebrasVisiveis = textoOriginal.replace(/\n/g, '\\n');
   
   // 1. Criar uma Thread
   const thread = await openai.beta.threads.create();
@@ -216,7 +217,7 @@ async function gerarVariacoesComAssistente(textoOriginal: string): Promise<strin
     // 2. Adicionar a mensagem do usuário à Thread
     await openai.beta.threads.messages.create(thread.id, {
       role: 'user',
-      content: textoOriginal,
+      content: textoComQuebrasVisiveis,
     });
     console.log(`[OPENAI] 💬 Mensagem adicionada à thread`);
 
@@ -270,7 +271,7 @@ async function gerarVariacoesComAssistente(textoOriginal: string): Promise<strin
     console.log(`[OPENAI] 🎯 Variações válidas encontradas: ${variacoesValidas.length}`);
 
     // Adicionar o texto original como primeira opção
-    const todasVariacoes = [textoOriginal, ...variacoesValidas];
+    const todasVariacoes = [textoComQuebrasVisiveis, ...variacoesValidas];
 
     return todasVariacoes;
 

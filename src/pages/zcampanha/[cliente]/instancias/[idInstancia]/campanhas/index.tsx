@@ -71,6 +71,7 @@ const CampanhasPage = () => {
   // Estados para o modal de detalhes (logs)
   const [buscaLog, setBuscaLog] = useState('');
   const [filtroStatusLog, setFiltroStatusLog] = useState<'sucesso' | 'erro' | ''>('');
+  const [logsDetalhados, setLogsDetalhados] = useState<Type.LogEnvio[]>([]);
 
   // Estados para sistema de variáveis
   const [mostrarVariaveisTexto, setMostrarVariaveisTexto] = useState(false);
@@ -150,9 +151,21 @@ const CampanhasPage = () => {
     closeMenu();
   };
 
-  // Função para processar quebras de linha
-  const processarQuebrasLinha = (texto: string): string => {
-    return texto.replace(/\n/g, '\n');
+  // Normaliza quebras de linha para \n, seja vindo de textarea ou contentEditable.
+  const normalizarQuebrasLinha = (texto: string): string => {
+    // Se já contém \n, provavelmente veio de textarea, só normaliza \r\n
+    if (texto.includes('\n')) {
+      return texto.replace(/\r\n|\r/g, '\n');
+    }
+    // Se veio de HTML (contentEditable), converte tags para \n
+    return texto
+      .replace(/<div><br><\/div>/g, '\n')
+      .replace(/<div>/g, '\n')
+      .replace(/<\/div>/g, '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\r\n|\r/g, '\n');
   };
 
   // Buscar campanhas
@@ -330,7 +343,7 @@ const CampanhasPage = () => {
           setErro('Digite a mensagem de texto');
           return;
         }
-        conteudo = { tipo: 'texto', texto: processarQuebrasLinha(textoMensagem) };
+        conteudo = { tipo: 'texto', texto: normalizarQuebrasLinha(textoMensagem) };
         break;
         
       case 'imagem':
@@ -344,7 +357,7 @@ const CampanhasPage = () => {
         };
         // Adicionar legenda apenas se não estiver vazia
         if (legendaImagem.trim()) {
-          conteudo.legenda = processarQuebrasLinha(legendaImagem.trim());
+          conteudo.legenda = normalizarQuebrasLinha(legendaImagem.trim());
         }
         break;
         
@@ -366,7 +379,7 @@ const CampanhasPage = () => {
         }
         conteudo = { 
           tipo: 'botoes', 
-          texto: processarQuebrasLinha(textoMensagem),
+          texto: normalizarQuebrasLinha(textoMensagem),
           imagem: imagemBase64 || '',
           botoes: botoesAcao
         };
@@ -467,8 +480,8 @@ const CampanhasPage = () => {
     setImagemBase64(campanha.conteudo.imagem || '');
     setLegendaImagem(campanha.conteudo.legenda || '');
     setBotoesAcao(campanha.conteudo.botoes || []);
-    setContatosSelecionados(campanha.contatos);
-    setGruposSelecionados([]); // CORREÇÃO: Garantir que grupos começam vazios na edição
+    fetchContatosDaCampanha(campanha.id || '');
+    setGruposSelecionados([]);
     setModalCriar(true);
   };
 
@@ -700,6 +713,29 @@ const CampanhasPage = () => {
     }
   };
 
+  async function fetchContatosDaCampanha(campanhaId: string) {
+    try {
+      const response = await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/campanhas/${campanhaId}/contatos`);
+      const data = await response.json();
+      // Supondo que a resposta seja { contatos: [...] }
+      setContatosSelecionados(data.contatos || []);
+    } catch {
+      setContatosSelecionados([]);
+      setErro('Erro ao buscar contatos da campanha');
+    }
+  }
+
+  async function fetchLogsDaCampanha(campanhaId: string) {
+    try {
+      const response = await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/campanhas/${campanhaId}/logs`);
+      const data = await response.json();
+      setLogsDetalhados(data.logs || []);
+    } catch {
+      setLogsDetalhados([]);
+      setErro('Erro ao buscar logs da campanha');
+    }
+  }
+
   // Função para ver detalhes da campanha (modificada para detectar campanhas em envio)
   const verDetalhesCampanha = (campanha: Type.Campanha) => {
     // Se a campanha estiver sendo enviada, mostrar o progresso ao invés dos detalhes normais
@@ -720,6 +756,7 @@ const CampanhasPage = () => {
     
     // Para campanhas com outros status, abrir modal de detalhes normal
     setModalDetalhes(campanha);
+    fetchLogsDaCampanha(campanha.id || '');
   };
 
   // Função para formatar data
@@ -788,16 +825,14 @@ const CampanhasPage = () => {
         return `<span class="variavel-destacada">${match}</span>`;
       } else {
         // Variável inválida: aplica o estilo de erro
-        return `<span class="variavel-invalida">${match}</span>`;
+        return `<span className="variavel-invalida">${match}</span>`;
       }
     });
   };
 
   // Filtrar logs no modal de detalhes
   const logsFiltrados = useMemo(() => {
-    if (!modalDetalhes || !modalDetalhes.logs) return [];
-
-    let resultado = modalDetalhes.logs;
+    let resultado = logsDetalhados;
 
     if (filtroStatusLog) {
       resultado = resultado.filter(log => log.status === filtroStatusLog);
@@ -812,7 +847,7 @@ const CampanhasPage = () => {
     }
 
     return resultado;
-  }, [modalDetalhes, buscaLog, filtroStatusLog]);
+  }, [logsDetalhados, buscaLog, filtroStatusLog]);
 
   // Função para fechar o modal de progresso
   const fecharModalProgresso = () => {
@@ -1537,7 +1572,7 @@ const CampanhasPage = () => {
                               alt="Imagem da campanha"
                               className="preview-img-detalhes"
                             />
-                            {modalDetalhes.conteudo.texto && (
+                            {/* {modalDetalhes.conteudo.texto && (
                               <div className="texto-botoes">
                                 <strong>Legenda:</strong>
                                 <div
@@ -1546,12 +1581,17 @@ const CampanhasPage = () => {
                                   style={{ whiteSpace: 'pre-wrap' }}
                                 />
                               </div>
-                            )}
+                            )} */}
                           </div>
                         )}
                         
                         {modalDetalhes.conteudo.botoes && modalDetalhes.conteudo.botoes.length > 0 && (
                           <div className="botoes-container">
+                            <div 
+                              className="preview-texto"
+                              dangerouslySetInnerHTML={{ __html: renderizarTextoComVariaveis(modalDetalhes.conteudo.texto || '') }}
+                              style={{ whiteSpace: 'pre-wrap' }}
+                            />
                             <strong>Botões:</strong>
                             <div className="botoes-lista">
                               {modalDetalhes.conteudo.botoes.map((botao, index) => (
@@ -1584,7 +1624,7 @@ const CampanhasPage = () => {
                 </div>
 
                 {/* Mostrar logs detalhados para campanhas concluídas */}
-                {['concluida', 'pausada', 'cancelada'].includes(modalDetalhes.status) && modalDetalhes.logs && modalDetalhes.logs.length > 0 && (
+                {['concluida', 'pausada', 'cancelada'].includes(modalDetalhes.status) && logsDetalhados.length > 0 && (
                   <div className="info-item">
                     <strong>Logs de Envio ({logsFiltrados.length}):</strong>
                     

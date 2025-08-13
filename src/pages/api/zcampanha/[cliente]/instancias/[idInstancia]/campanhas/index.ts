@@ -29,6 +29,7 @@ export type ContatoSelecionado = {
 };
 
 export type LogEnvio = {
+  id?: string;
   contatoId: string;
   nomeContato: string;
   numeroContato: string;
@@ -60,13 +61,11 @@ export type Campanha = {
   nome: string;
   descricao?: string;
   conteudo: ConteudoMensagem;
-  contatos: ContatoSelecionado[];
   status: StatusCampanha;
   dataAgendamento?: number;
   dataCriacao: number;
   dataInicio?: number;
   dataConclusao?: number;
-  criadoPor: string;
   configuracoes: {
     delayEntreEnvios: number; // em segundos
     maxTentativas: number;
@@ -75,7 +74,6 @@ export type Campanha = {
     horarioFim?: string; // HH:mm
   };
   estatisticas: EstatisticasCampanha;
-  logs: LogEnvio[];
   ultimaAtualizacao?: number;
 };
 
@@ -104,6 +102,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       query = query.limit(Number(limite)).offset(offset);
       
       const snapshot = await query.get();
+      // Para cada campanha, não trazer contatos/logs (serão buscados sob demanda)
       const campanhas = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -129,9 +128,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         descricao,
         conteudo,
         contatos,
-        dataAgendamento,
-        criadoPor
-      }: Partial<Campanha> = req.body;
+        dataAgendamento
+      }: Partial<Campanha> & { contatos?: ContatoSelecionado[] } = req.body;
 
       if (!nome || !conteudo || !contatos || !Array.isArray(contatos) || contatos.length === 0) {
         return res.status(400).json({ 
@@ -153,15 +151,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       const agora = Date.now();
-      
-      // Criar logs iniciais para todos os contatos
-      const logsIniciais: LogEnvio[] = contatos.map(contato => ({
-        contatoId: contato.id,
-        nomeContato: contato.nome,
-        numeroContato: contato.numero,
-        status: 'pendente',
-        tentativas: 0
-      }));
 
       // Calcular estatísticas iniciais
       const estatisticasIniciais: EstatisticasCampanha = {
@@ -189,30 +178,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         ...(conteudo.botoes && conteudo.botoes.length > 0 && { botoes: conteudo.botoes })
       };
 
-      // Construir campanha sem valores undefined
+      // Construir campanha sem contatos/logs
       const novaCampanha: Partial<Campanha> = {
         nome: nome.trim(),
         dataCriacao: agora,
         status: dataAgendamento ? 'agendada' : 'rascunho',
-        criadoPor: criadoPor || 'sistema',
         conteudo: conteudoFiltrado,
-        contatos,
         configuracoes: configuracoesPadrao,
         estatisticas: estatisticasIniciais,
-        logs: logsIniciais
       };
 
-      // Adicionar campos opcionais apenas se tiverem valor
       if (descricao?.trim()) {
         novaCampanha.descricao = descricao.trim();
       }
-
       if (dataAgendamento) {
         novaCampanha.dataAgendamento = dataAgendamento;
       }
 
+      // Criar documento da campanha
       const docRef = await colRef.add(novaCampanha);
-      
+
+      // Criar subcoleção contatos
+      const contatosBatch = dbAdmin.batch();
+      const contatosCol = docRef.collection('contatos');
+      contatos.forEach((contato: ContatoSelecionado) => {
+        contatosBatch.set(contatosCol.doc(contato.id), contato);
+      });
+      await contatosBatch.commit();
+
+      // Criar subcoleção logs
+      const logsBatch = dbAdmin.batch();
+      const logsCol = docRef.collection('logs');
+      contatos.forEach((contato: ContatoSelecionado) => {
+        const log: LogEnvio = {
+          contatoId: contato.id,
+          nomeContato: contato.nome,
+          numeroContato: contato.numero,
+          status: 'pendente',
+          tentativas: 0
+        };
+        logsBatch.set(logsCol.doc(contato.id), log);
+      });
+      await logsBatch.commit();
+
       return res.status(201).json({
         id: docRef.id,
         ...novaCampanha,
@@ -222,7 +230,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === 'PUT') {
       // Atualizar campanha existente
-      const { id, ...dadosAtualizacao } = req.body;
+      const { id, contatos, ...dadosAtualizacao } = req.body;
       
       if (!id) {
         return res.status(400).json({ error: 'ID da campanha é obrigatório' });
@@ -266,20 +274,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         dadosAtualizacao.conteudo.variacoes = [];
       }
 
-      // Recalcular estatísticas se os contatos mudaram
-      if (dadosAtualizacao.contatos) {
-        const novosLogs: LogEnvio[] = dadosAtualizacao.contatos.map((contato: ContatoSelecionado) => ({
-          contatoId: contato.id,
-          nomeContato: contato.nome,
-          numeroContato: contato.numero,
-          status: 'pendente',
-          tentativas: 0
-        }));
+      // Se contatos mudaram, atualizar subcoleção contatos e logs
+      if (contatos) {
+        // Apagar subcoleções antigas
+        const contatosCol = docRef.collection('contatos');
+        const logsCol = docRef.collection('logs');
+        const contatosSnap = await contatosCol.get();
+        const logsSnap = await logsCol.get();
+        const batch = dbAdmin.batch();
+        contatosSnap.docs.forEach(doc => batch.delete(doc.ref));
+        logsSnap.docs.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
 
-        dadosAtualizacao.logs = novosLogs;
+        // Criar novos contatos/logs
+        const contatosBatch = dbAdmin.batch();
+        contatos.forEach((contato: ContatoSelecionado) => {
+          contatosBatch.set(contatosCol.doc(contato.id), contato);
+        });
+        await contatosBatch.commit();
+
+        const logsBatch = dbAdmin.batch();
+        contatos.forEach((contato: ContatoSelecionado) => {
+          const log: LogEnvio = {
+            contatoId: contato.id,
+            nomeContato: contato.nome,
+            numeroContato: contato.numero,
+            status: 'pendente',
+            tentativas: 0
+          };
+          logsBatch.set(logsCol.doc(contato.id), log);
+        });
+        await logsBatch.commit();
+
+        // Atualizar estatísticas
         dadosAtualizacao.estatisticas = {
-          totalContatos: dadosAtualizacao.contatos.length,
-          pendentes: dadosAtualizacao.contatos.length,
+          totalContatos: contatos.length,
+          pendentes: contatos.length,
           enviados: 0,
           sucessos: 0,
           erros: 0,
@@ -325,6 +355,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           return res.status(400).json({ error: `Tipo de mensagem não suportado: ${dadosAtualizacao.conteudo.tipo}` });
       }
 
+      // Remover contatos/logs do update principal
+      delete dadosAtualizacao.logs;
+      delete dadosAtualizacao.contatos;
+
       await docRef.update(dadosAtualizacao);
       
       const campanhaAtualizada = await docRef.get();
@@ -359,6 +393,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           error: 'Não é possível deletar campanhas em andamento' 
         });
       }
+
+      // Apagar subcoleções contatos e logs
+      const contatosCol = docRef.collection('contatos');
+      const logsCol = docRef.collection('logs');
+      const contatosSnap = await contatosCol.get();
+      const logsSnap = await logsCol.get();
+      const batch = dbAdmin.batch();
+      contatosSnap.docs.forEach(doc => batch.delete(doc.ref));
+      logsSnap.docs.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
 
       await docRef.delete();
       

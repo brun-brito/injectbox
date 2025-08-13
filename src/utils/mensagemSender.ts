@@ -62,13 +62,20 @@ export class MensagemSender {
       return { sucesso: false, erro: 'Texto da mensagem não pode estar vazio' };
     }
 
-    let mensagemProcessada = this.processarVariaveis(conteudo.texto, contato);
-    mensagemProcessada = this.processarQuebrasLinha(mensagemProcessada);
+    // Sempre normalizar aqui, independente da origem
+    const mensagemProcessada = this.normalizarQuebrasLinha(
+      this.processarVariaveis(conteudo.texto, contato)
+    );
 
     const payload: Record<string, unknown> = {
       phone: contato.numeroContato,
       message: mensagemProcessada
     };
+
+    // Log detalhado do payload e do campo message (com \n visíveis)
+    console.log('[MensagemSender] Payload send-text:', payload);
+    console.log('[MensagemSender] Conteúdo do campo message (com \\n visíveis):');
+    console.log(JSON.stringify(mensagemProcessada));
 
     return await this.fazerRequisicao('send-text', payload);
   }
@@ -90,12 +97,19 @@ export class MensagemSender {
       viewOnce: false
     };
 
-    // Adicionar legenda se fornecida
     if (conteudo.legenda?.trim()) {
-      let legendaProcessada = this.processarVariaveis(conteudo.legenda, contato);
-      legendaProcessada = this.processarQuebrasLinha(legendaProcessada);
+      const legendaProcessada = this.normalizarQuebrasLinha(
+        this.processarVariaveis(conteudo.legenda, contato)
+      );
       payload.caption = legendaProcessada;
+      // Log detalhado do campo caption
+      console.log('[MensagemSender] Conteúdo do campo caption (com \\n visíveis):');
+      console.log(JSON.stringify(legendaProcessada));
     }
+
+    // Log do payload (omitindo imagem base64)
+    const payloadLog = { ...payload, image: '[base64 omitted]' };
+    console.log('[MensagemSender] Payload send-image:', payloadLog);
 
     return await this.fazerRequisicao('send-image', payload);
   }
@@ -115,15 +129,16 @@ export class MensagemSender {
       return { sucesso: false, erro: 'Pelo menos um botão deve ser fornecido' };
     }
 
-    // Validar botões
     for (const botao of conteudo.botoes) {
       if (!botao.label?.trim()) {
         return { sucesso: false, erro: 'Todos os botões devem ter um texto' };
       }
     }
 
-    let mensagemProcessada = this.processarVariaveis(conteudo.texto, contato);
-    mensagemProcessada = this.processarQuebrasLinha(mensagemProcessada);
+    // Sempre normalizar aqui, independente da origem
+    const mensagemProcessada = this.normalizarQuebrasLinha(
+      this.processarVariaveis(conteudo.texto, contato)
+    );
 
     const buttonList: Record<string, unknown> = {
       buttons: conteudo.botoes.map(botao => ({
@@ -131,7 +146,6 @@ export class MensagemSender {
       }))
     };
 
-    // Adicionar imagem se fornecida
     if (conteudo.imagem) {
       buttonList.image = conteudo.imagem;
     }
@@ -141,6 +155,12 @@ export class MensagemSender {
       message: mensagemProcessada,
       buttonList: buttonList
     };
+
+    // Log detalhado do payload e do campo message (com \n visíveis)
+    const payloadLog = { ...payload, buttonList: { ...buttonList, image: conteudo.imagem ? '[base64 omitted]' : undefined } };
+    console.log('[MensagemSender] Payload send-button-list:', payloadLog);
+    console.log('[MensagemSender] Conteúdo do campo message (com \\n visíveis):');
+    console.log(JSON.stringify(mensagemProcessada));
 
     return await this.fazerRequisicao('send-button-list', payload);
   }
@@ -207,7 +227,22 @@ export class MensagemSender {
    * Processa quebras de linha
    */
   private processarQuebrasLinha(texto: string): string {
-    return texto.replace(/\n/g, '\n');
+    // Não altere nada, apenas retorne o texto original
+    return texto;
+  }
+
+  /**
+   * Garante que todas as quebras de linha estejam como \n
+   */
+  private normalizarQuebrasLinha(texto: string): string {
+    return texto
+      .replace(/<div><br><\/div>/g, '\n')
+      .replace(/<div>/g, '\n')
+      .replace(/<\/div>/g, '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\r\n|\r/g, '\n');
   }
 
   /**

@@ -155,9 +155,12 @@ async function retomarCampanha(
   }
 
   // Verificar se há contatos pendentes
-  const contatosPendentes = campanha.logs.filter(log => 
-    log.status === 'pendente' || (log.status === 'erro' && log.tentativas < 3)
-  );
+  const logsSnap = await campanhaRef.collection('logs').get();
+  const contatosPendentes = logsSnap.docs
+    .map(doc => doc.data())
+    .filter(log => 
+      log.status === 'pendente' || (log.status === 'erro' && log.tentativas < 3)
+    );
 
   if (contatosPendentes.length === 0) {
     return res.status(400).json({ 

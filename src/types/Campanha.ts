@@ -54,7 +54,7 @@ export type Campanha = {
   nome: string;
   descricao?: string;
   conteudo: ConteudoMensagem;
-  contatos: ContatoSelecionado[];
+  contatos?: ContatoSelecionado[]; // agora opcional
   status: StatusCampanha;
   dataAgendamento?: number;
   dataCriacao: number;
@@ -62,8 +62,6 @@ export type Campanha = {
   dataConclusao?: number;
   criadoPor: string;
   estatisticas: EstatisticasCampanha;
-  logs: LogEnvio[];
   pausadaEm?: number;
 };
-
 export type Contato = { id: string; nome: string; numero: string };

@@ -31,15 +31,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const campanha = { id: doc.id, ...doc.data() } as Campanha;
     
     // Calcular estatísticas em tempo real
+    const logsSnap = await campanhaRef.collection('logs').get();
+    const logs = logsSnap.docs.map(doc => doc.data());
+
     const estatisticas = {
-      totalContatos: campanha.logs.length,
-      pendentes: campanha.logs.filter(log => log.status === 'pendente').length,
-      enviados: campanha.logs.filter(log => log.status !== 'pendente').length,
-      sucessos: campanha.logs.filter(log => log.status === 'sucesso').length,
-      erros: campanha.logs.filter(log => log.status === 'erro').length,
+      totalContatos: logs.length,
+      pendentes: logs.filter(log => log.status === 'pendente').length,
+      enviados: logs.filter(log => log.status !== 'pendente').length,
+      sucessos: logs.filter(log => log.status === 'sucesso').length,
+      erros: logs.filter(log => log.status === 'erro').length,
       percentualSucesso: 0
     };
-    
+
     if (estatisticas.enviados > 0) {
       estatisticas.percentualSucesso = (estatisticas.sucessos / estatisticas.enviados) * 100;
     }

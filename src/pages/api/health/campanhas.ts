@@ -65,9 +65,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           const campanhasRef = instanciaDoc.ref.collection('campanhas');
           const campanhasSnap = await campanhasRef.where('status', 'in', ['enviando', 'pausada']).get();
           
-          campanhasSnap.docs.forEach(campanhaDoc => {
+          for (const campanhaDoc of campanhasSnap.docs) {
             const campanha = campanhaDoc.data();
-            
+
+            // Buscar quantidade de logs na subcoleção
+            let logsCount = 0;
+            try {
+              const logsSnap = await campanhaDoc.ref.collection('logs').get();
+              logsCount = logsSnap.size;
+            } catch {
+              logsCount = 0;
+            }
+
             const campanhaAtiva: CampanhaAtiva = {
               id: campanhaDoc.id,
               empresa: empresaId,
@@ -83,11 +92,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
                 erros: campanha.estatisticas?.erros || 0,
                 percentualSucesso: campanha.estatisticas?.percentualSucesso || 0
               },
-              logs: Array.isArray(campanha.logs) ? campanha.logs.length : 0
+              logs: logsCount
             };
             
             campanhasAtivas.push(campanhaAtiva);
-          });
+          }
         }
       } catch (error) {
         console.error(`Erro ao buscar campanhas da empresa ${empresaId}:`, error);

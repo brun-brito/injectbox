@@ -33,7 +33,7 @@ const CONFIG_ENVIO = {
   DELAY_MINIMO_MENSAGEM: IS_PRODUCTION ? 1000 : 1500, // 1s em produção
   DELAY_MAXIMO_MENSAGEM: IS_PRODUCTION ? 3000 : 4000, // 3s em produção
   MAX_TENTATIVAS_CONTATO: 3,
-  TIMEOUT_REQUISICAO: IS_PRODUCTION ? 8000 : 10000, // 8s em produção
+  TIMEOUT_REQUISICAO: IS_PRODUCTION ? 8000 : 100000, // 8s em produção
   TIMEOUT_TOTAL_FUNCAO: IS_PRODUCTION ? 55000 : 90000, // 55s em produção (margem de 5s)
   MAX_CONTATOS_POR_EXECUCAO: IS_PRODUCTION ? 25 : 50, // Máximo 25 em produção
 };
@@ -90,7 +90,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const campanha = { id: doc.id, ...doc.data() } as Campanha;
-    console.log(`📋 [${id}] Campanha encontrada: status=${campanha.status}, logs=${campanha.logs?.length || 0}`);
     
     // CORREÇÃO: Aceitar campanhas pausadas para retomada
     if (!['rascunho', 'pausada'].includes(campanha.status)) {
@@ -101,8 +100,54 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
+    // Atualizar status inicial da campanha
+    const agora = Date.now();
+    console.log(`💾 [${id}] Atualizando status para 'enviando'...`);
+    await campanhaRef.update({
+      status: 'enviando' as StatusCampanha,
+      dataInicio: agora
+    });
+
+    // Buscar contatos da subcoleção
+    const contatosSnap = await campanhaRef.collection('contatos').get();
+    const contatos: LogEnvio[] = [];
+    contatosSnap.forEach(contatoDoc => {
+      const contatoData = contatoDoc.data();
+      if (contatoData && contatoData.id && contatoData.nome && contatoData.numero) {
+        contatos.push({
+          contatoId: contatoData.id,
+          nomeContato: contatoData.nome,
+          numeroContato: contatoData.numero,
+          status: 'pendente',
+          tentativas: 0
+        });
+      }
+    });
+
+    // Buscar logs da subcoleção
+    const logsSnap = await campanhaRef.collection('logs').get();
+    const logs: LogEnvio[] = [];
+    logsSnap.forEach(logDoc => {
+      const logData = logDoc.data();
+      if (logData && logData.contatoId && logData.nomeContato && logData.numeroContato) {
+        logs.push({
+          contatoId: logData.contatoId,
+          nomeContato: logData.nomeContato,
+          numeroContato: logData.numeroContato,
+          status: logData.status,
+          timestampEnvio: logData.timestampEnvio,
+          tempoResposta: logData.tempoResposta,
+          codigoResposta: logData.codigoResposta,
+          mensagemErro: logData.mensagemErro,
+          tentativas: logData.tentativas,
+          ultimaTentativa: logData.ultimaTentativa,
+          variacaoUsada: logData.variacaoUsada
+        });
+      }
+    });
+
     // Filtrar contatos pendentes
-    const contatosPendentes = campanha.logs.filter(log => 
+    const contatosPendentes = logs.filter(log => 
       log.status === 'pendente' || (log.status === 'erro' && log.tentativas < CONFIG_ENVIO.MAX_TENTATIVAS_CONTATO)
     );
 
@@ -133,14 +178,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
     console.log(`✅ [${id}] Tokens encontrados com sucesso`);
-
-    // Atualizar status inicial da campanha
-    const agora = Date.now();
-    console.log(`💾 [${id}] Atualizando status para 'enviando'...`);
-    await campanhaRef.update({
-      status: 'enviando' as StatusCampanha,
-      dataInicio: agora
-    });
 
     // Criar progresso inicial
     const totalLotes = Math.ceil(contatosPendentes.length / CONFIG_ENVIO.TAMANHO_LOTE);
@@ -395,12 +432,12 @@ async function processarCampanhaSimplificada(
     await atualizarLogsCampanha(campanhaRef, resultados.logs);
     
     // Verificar se ainda há contatos pendentes
-    const campanhaFinal = await campanhaRef.get();
-    const campanhaFinalData = campanhaFinal.data() as Campanha;
-    const aindaPendentes = campanhaFinalData.logs.filter(log => 
+    const logsSnap = await campanhaRef.collection('logs').get();
+    const logs = logsSnap.docs.map(doc => doc.data() as LogEnvio);
+    const aindaPendentes = logs.filter(log => 
       log.status === 'pendente' || (log.status === 'erro' && log.tentativas < CONFIG_ENVIO.MAX_TENTATIVAS_CONTATO)
     );
-    
+
     if (aindaPendentes.length === 0) {
       await campanhaRef.update({
         status: 'concluida' as StatusCampanha,
@@ -601,13 +638,13 @@ async function processarModoExpress(
     await atualizarLogsCampanha(campanhaRef, contatos);
     
     // Determinar status final
-    const campanhaAtual = await campanhaRef.get();
-    const campanhaData = campanhaAtual.data() as Campanha;
-    const pendentes = campanhaData.logs.filter(log => 
+    const logsSnap = await campanhaRef.collection('logs').get();
+    const logs = logsSnap.docs.map(doc => doc.data() as LogEnvio);
+    const aindaPendentes = logs.filter(log => 
       log.status === 'pendente' || (log.status === 'erro' && log.tentativas < CONFIG_ENVIO.MAX_TENTATIVAS_CONTATO)
     );
     
-    const statusFinal = pendentes.length === 0 ? 'concluida' : 'pausada';
+    const statusFinal = aindaPendentes.length === 0 ? 'concluida' : 'pausada';
     
     await campanhaRef.update({
       status: statusFinal as StatusCampanha,
@@ -766,20 +803,32 @@ async function buscarTokens(cliente: string, idInstancia: string) {
 }
 
 async function atualizarLogsCampanha(campanhaRef: FirebaseDocRef, logs: LogEnvio[]) {
-  const campanhaDoc = await campanhaRef.get();
-  const campanha = campanhaDoc.data() as Campanha;
-  
-  const logsAtualizados = campanha.logs.map(logExistente => {
-    const logAtualizado = logs.find(l => l.contatoId === logExistente.contatoId);
-    return logAtualizado || logExistente;
-  });
+  const batch = dbAdmin.batch();
+  const logsCol = campanhaRef.collection('logs');
+
+  for (const log of logs) {
+    const logRef = logsCol.doc(log.contatoId);
+    // Remover campos undefined
+    const logSemUndefined = Object.fromEntries(
+      Object.entries(log).filter(([v]) => v !== undefined)
+    );
+    batch.set(logRef, logSemUndefined, { merge: true });
+  }
+  await batch.commit();
+
+  // Pequeno delay para garantir persistência antes de buscar novamente
+  await new Promise(resolve => setTimeout(resolve, 100));
+
+  // Atualizar estatísticas agregadas no documento principal
+  const logsSnap = await logsCol.get();
+  const todosLogs = logsSnap.docs.map(doc => doc.data() as LogEnvio);
 
   const estatisticas = {
-    totalContatos: logsAtualizados.length,
-    pendentes: logsAtualizados.filter(l => l.status === 'pendente').length,
-    enviados: logsAtualizados.filter(l => l.status !== 'pendente').length,
-    sucessos: logsAtualizados.filter(l => l.status === 'sucesso').length,
-    erros: logsAtualizados.filter(l => l.status === 'erro').length,
+    totalContatos: todosLogs.length,
+    pendentes: todosLogs.filter(l => l.status === 'pendente').length,
+    enviados: todosLogs.filter(l => l.status !== 'pendente').length,
+    sucessos: todosLogs.filter(l => l.status === 'sucesso').length,
+    erros: todosLogs.filter(l => l.status === 'erro').length,
     percentualSucesso: 0
   };
   
@@ -788,7 +837,6 @@ async function atualizarLogsCampanha(campanhaRef: FirebaseDocRef, logs: LogEnvio
   }
 
   await campanhaRef.update({
-    logs: logsAtualizados,
     estatisticas
   });
 }
@@ -796,22 +844,21 @@ async function atualizarLogsCampanha(campanhaRef: FirebaseDocRef, logs: LogEnvio
 async function finalizarCampanha(campanhaRef: FirebaseDocRef, progresso: ProgressoEnvio) {
   const agora = Date.now();
   
-  const campanhaDoc = await campanhaRef.get();
-  const campanhaAtual = campanhaDoc.data() as Campanha;
-  
-  const logsPendentes = campanhaAtual.logs.filter(log => 
+  const logsSnap = await campanhaRef.collection('logs').get();
+  const logs = logsSnap.docs.map(doc => doc.data() as LogEnvio);
+  const aindaPendentes = logs.filter(log => 
     log.status === 'pendente' || (log.status === 'erro' && log.tentativas < CONFIG_ENVIO.MAX_TENTATIVAS_CONTATO)
   );
   
-  const statusFinal: StatusCampanha = logsPendentes.length === 0 ? 'concluida' : 'pausada';
+  const statusFinal: StatusCampanha = aindaPendentes.length === 0 ? 'concluida' : 'pausada';
   
-  console.log(`[${progresso.campanhaId}] FINALIZANDO: ${logsPendentes.length} contatos pendentes restantes`);
+  console.log(`[${progresso.campanhaId}] FINALIZANDO: ${aindaPendentes.length} contatos pendentes restantes`);
   console.log(`[${progresso.campanhaId}] STATUS FINAL: ${statusFinal}`);
   
   progresso.status = statusFinal;
   progresso.mensagemStatus = statusFinal === 'concluida' 
     ? `Campanha finalizada! ${progresso.sucessos} sucessos, ${progresso.erros} erros`
-    : `Campanha pausada com ${logsPendentes.length} contatos pendentes`;
+    : `Campanha pausada com ${aindaPendentes.length} contatos pendentes`;
   progresso.ultimaAtualizacao = agora;
 
   const updateData: Record<string, unknown> = {
@@ -1072,6 +1119,17 @@ function emitirProgresso(wsManager: WebSocketManager, progresso: ProgressoEnvio)
   wsManager.emitirProgressoCampanha(progressoWS);
 }
 
+function normalizarQuebrasLinha(texto: string): string {
+  return texto
+    .replace(/\r\n|\r/g, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<div><br><\/div>/g, '\n')
+    .replace(/<div>/g, '\n')
+    .replace(/<\/div>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/<[^>]+>/g, '');
+}
+
 async function criarVariacoesMensagem(campanha: Campanha, campanhaRef: FirebaseDocRef) {
   // Verificar se já existem variações
   if (campanha.conteudo.variacoes && campanha.conteudo.variacoes.length > 1) {
@@ -1120,13 +1178,14 @@ async function criarVariacoesMensagem(campanha: Campanha, campanhaRef: FirebaseD
   try {
     // VALIDAÇÃO: Só usar OpenAI se o texto tiver mais de 30 caracteres
     if (textoLimpo.length > 30) {
+      console.log(textoLimpo);
       console.log(`[${campanha.id}] Texto qualifica para OpenAI (${textoLimpo.length} chars > 30)`);
       console.log(`[${campanha.id}] Iniciando chamada para OpenAI...`);
       
       const variacoesOpenAI = await criarVariacoesComOpenAI(campanha, campanhaRef, textoLimpo);
       
       if (variacoesOpenAI && variacoesOpenAI.length > 1) {
-        variacoes = variacoesOpenAI;
+        variacoes = variacoesOpenAI.map(v => normalizarQuebrasLinha(v));
         console.log(`[${campanha.id}] OpenAI gerou ${variacoes.length} variações com sucesso`);
       } else {
         console.log(`[${campanha.id}] OpenAI retornou resultado inválido:`, variacoesOpenAI);
@@ -1141,7 +1200,7 @@ async function criarVariacoesMensagem(campanha: Campanha, campanhaRef: FirebaseD
     console.warn(`[${campanha.id}] Fallback para variações simples. Erro:`, error);
     
     // ESTRATÉGIA 2: Fallback para variações simples
-    variacoes = gerarVariacoesMensagemSimples(textoLimpo);
+    variacoes = gerarVariacoesMensagemSimples(textoLimpo).map(v => normalizarQuebrasLinha(v));
     console.log(`[${campanha.id}] Geradas ${variacoes.length} variações simples`);
   }
 
@@ -1202,12 +1261,9 @@ async function criarVariacoesComOpenAI(
 
     if (response.ok) {
       const data = await response.json();
-      console.log(`[${campanha.id}] Dados recebidos:`, {
-        variacoes: data.variacoes?.length || 0,
-        usouFallback: data.usouFallback,
-        usouCache: data.usouCache,
-        erro: data.erro
-      });
+      // console.log(`[${campanha.id}] Dados recebidos:`, {
+      //   data
+      // });
       
       return data.variacoes || [textoParaVariacao];
     } else {
