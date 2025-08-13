@@ -810,7 +810,7 @@ async function atualizarLogsCampanha(campanhaRef: FirebaseDocRef, logs: LogEnvio
     const logRef = logsCol.doc(log.contatoId);
     // Remover campos undefined
     const logSemUndefined = Object.fromEntries(
-      Object.entries(log).filter(([v]) => v !== undefined)
+      Object.entries(log).filter(([, v]) => v !== undefined)
     );
     batch.set(logRef, logSemUndefined, { merge: true });
   }
