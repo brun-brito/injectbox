@@ -263,12 +263,12 @@ export const campanhaStyle = `
           background: rgba(251, 191, 36, 0.1);
         }
 
-        .btn-acao.iniciar {
+        .btn-acao.iniciar, .btn-acao.retomar {
           color: #22c55e;
           border-color: #22c55e;
         }
 
-        .btn-acao.iniciar:hover {
+        .btn-acao.iniciar:hover, .btn-acao.retomar:hover {
           background: rgba(34, 197, 94, 0.1);
         }
 
@@ -573,7 +573,7 @@ export const campanhaStyle = `
           opacity: 0.7;
         }
 
-        .btn-cancelar {
+        .btn-cancelar, .btn-acao.cancelar-envio {
           background: transparent;
           color: #a1a1aa;
           border: 1px solid #3f3f46;
@@ -585,7 +585,7 @@ export const campanhaStyle = `
           transition: background 0.2s, color 0.2s, border-color 0.2s;
         }
 
-        .btn-cancelar:hover {
+        .btn-cancelar:hover, .btn-acao.cancelar-envio:hover {
           background: #3f3f46;
           color: #fff;
           border-color: #3f3f46;
@@ -2248,7 +2248,10 @@ export const campanhaStyle = `
             border-radius: 8px;
             font-size: 14px;
             cursor: pointer;
+            display: flex;
+            gap: 5px;
             transition: all 0.2s ease;
+            align-items: center;
           }
 
           .btn-parar-acompanhamento:hover {

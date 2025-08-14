@@ -522,6 +522,7 @@ const CampanhasPage = () => {
       const urlProd = `https://us-central1-injectbox-1.cloudfunctions.net/processaCampanhaHttp?campanhaId=${campanhaId}&cliente=${cliente}&idInstancia=${idInstancia}`;
       
       const url = process.env.NODE_ENV === 'production' ? urlProd : urlDev;
+      console.log(`🔗 Disparando envio da campanha ${campanhaId} para URL: ${url}`);
       
        // Dispara o fetch, mas não espera resposta
       fetch(url, {
@@ -580,8 +581,13 @@ const CampanhasPage = () => {
         // Atualizar campanha na lista local
         setCampanhas(prev => prev.map(campanha => 
           campanha.id === campanhaId 
-            ? { ...campanha, status: 'pausada' as Type.StatusCampanha }
-            : campanha
+            ? { 
+              ...campanha, 
+              status: 'pausada' as Type.StatusCampanha,
+              pausadaEm: Date.now(),
+              tempoEstimado: data.tempoEstimado || campanha.tempoEstimado
+            }
+          : campanha
         ));
 
         // Parar polling se estiver ativo
@@ -619,33 +625,27 @@ const CampanhasPage = () => {
     setEnviandoCampanha(campanhaId);
     
     try {
-      const response = await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/campanhas/${campanhaId}/controle`, {
+      fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/campanhas/${campanhaId}/controle`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ acao: 'retomar' })
+      }).catch(error => {
+        console.error('Erro ao disparar retomada:', error);
       });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        // Atualizar campanha na lista local
-        setCampanhas(prev => prev.map(campanha => 
-          campanha.id === campanhaId 
-            ? { ...campanha, status: 'enviando' as Type.StatusCampanha }
-            : campanha
-        ));
-
-        // Iniciar acompanhamento via polling
-        startPolling(campanhaId, cliente, idInstancia);
-        setCampanhaAcompanhada(campanhaId);
-        setMostrarModalProgresso(true);
-
-        setAviso('Campanha retomada com sucesso!\n\nO envio continuará de onde parou.');
-      } else {
-        setErro(data.error || 'Erro ao retomar campanha');
-      }
-    } catch {
-      setErro('Erro de conexão ao retomar campanha');
+    
+      // Atualizar campanha na lista local
+      setCampanhas(prev => prev.map(campanha => 
+        campanha.id === campanhaId 
+          ? { ...campanha, status: 'enviando' as Type.StatusCampanha }
+          : campanha
+      ));
+    
+      // Iniciar acompanhamento via polling
+      startPolling(campanhaId, cliente, idInstancia);
+      setCampanhaAcompanhada(campanhaId);
+      setMostrarModalProgresso(true);
+    
+      setAviso('Campanha retomada com sucesso!\n\nO envio continuará de onde parou.');
     } finally {
       setEnviandoCampanha(null);
     }
@@ -1043,107 +1043,21 @@ const CampanhasPage = () => {
                 Última atualização: {new Date(dadosProgresso.ultimaAtualizacao || Date.now()).toLocaleTimeString('pt-BR')}
               </small>
               <br></br>
-              <small>
+              {['enviando', 'pausada'].includes(dadosProgresso.status) && (<small>
                 Tempo restante previsto: {dadosProgresso.tempoEstimado || 'Indeterminado'}
-              </small>
+              </small>)}
             </div>
           </div>
 
-          {/* NOVOS CONTROLES DE CAMPANHA NO MODAL */}
-          <div className="progresso-controles">
-            {dadosProgresso.status === 'enviando' && (
-              <div className="controles-envio">
-                <button 
-                  onClick={pausarCampanhaModal}
-                  disabled={pausandoCampanha === campanhaAcompanhada}
-                  className="btn-controle pausar"
-                  title="Pausar campanha"
-                >
-                  {pausandoCampanha === campanhaAcompanhada ? (
-                    <>
-                      <div className="loading-spinner-small" />
-                      <span>Pausando...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Icons.FiPause size={16} />
-                      <span>Pausar Campanha</span>
-                    </>
-                  )}
-                </button>
-                
-                <button 
-                  onClick={cancelarCampanhaModal}
-                  disabled={cancelandoCampanha === campanhaAcompanhada}
-                  className="btn-controle cancelar"
-                  title="Cancelar campanha (irreversível)"
-                >
-                  {cancelandoCampanha === campanhaAcompanhada ? (
-                    <>
-                      <div className="loading-spinner-small" />
-                      <span>Cancelando...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Icons.FiSquare size={16} />
-                      <span>Cancelar</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            )}
-
-            {dadosProgresso.status === 'pausada' && (
-              <div className="controles-pausada">
-                <button 
-                  onClick={retomarCampanhaModal}
-                  disabled={enviandoCampanha === campanhaAcompanhada}
-                  className="btn-controle retomar"
-                  title="Retomar campanha"
-                >
-                  {enviandoCampanha === campanhaAcompanhada ? (
-                    <>
-                      <div className="loading-spinner-small" />
-                      <span>Retomando...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Icons.FiPlay size={16} />
-                      <span>Retomar Campanha</span>
-                    </>
-                  )}
-                </button>
-                
-                <button 
-                  onClick={cancelarCampanhaModal}
-                  disabled={cancelandoCampanha === campanhaAcompanhada}
-                  className="btn-controle cancelar"
-                  title="Cancelar campanha (irreversível)"
-                >
-                  {cancelandoCampanha === campanhaAcompanhada ? (
-                    <>
-                      <div className="loading-spinner-small" />
-                      <span>Cancelando...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Icons.FiTrash2 size={16} />
-                      <span>Cancelar</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            )}
-          </div>
-
           <div className="progresso-actions">
-            <button 
+            
+            {['rascunho','enviando', 'pausada'].includes(dadosProgresso.status) && (<button 
               onClick={fecharModalProgresso}
               className="btn-fechar-progresso"
             >
               <Icons.FiEyeOff size={16} />
               Fechar (continua em background)
-            </button>
+            </button>)}
             
             {['concluida', 'cancelada'].includes(dadosProgresso.status) && (
               <button 
@@ -1151,7 +1065,7 @@ const CampanhasPage = () => {
                 className="btn-parar-acompanhamento"
               >
                 <Icons.FiStopCircle size={16} />
-                Parar Acompanhamento
+                <span>Fechar</span>
               </button>
             )}
           </div>

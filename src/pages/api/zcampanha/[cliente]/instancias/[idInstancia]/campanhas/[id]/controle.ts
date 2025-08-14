@@ -188,8 +188,11 @@ async function retomarCampanha(
     console.error(error);
   }
 
-  // CORREÇÃO: NÃO atualizar status aqui - deixar o iniciar-envio fazer isso
-  console.log(`[${campanhaId}] Controles de pausa limpos, preparando para retomar...`);
+  // NOVO: Atualizar status para 'enviando' imediatamente
+  await campanhaRef.update({
+    status: 'enviando' as StatusCampanha,
+    ultimaAtualizacao: agora
+  });
 
   // Chamar a API de iniciar-envio para retomar o processo
   try {
@@ -201,7 +204,7 @@ async function retomarCampanha(
       headers: { 'Content-Type': 'application/json' }
     });
 
-    console.log(`[${campanhaId}] Resposta da API iniciar-envio: ${response.status} ${response.statusText}`);
+    console.log(`[${campanhaId}] Resposta da Cloud Function: ${response.status} ${response.statusText}`);
 
     if (response.ok) {
       const data = await response.json();

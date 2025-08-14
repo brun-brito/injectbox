@@ -48,10 +48,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       estatisticas.percentualSucesso = (estatisticas.sucessos / estatisticas.enviados) * 100;
     }
 
-    // Calcular tempo estimado se campanha está em andamento ou pausada
-    let tempoEstimado: string | undefined;
-    if (['enviando', 'pausada'].includes(campanha.status)) {
-      const ms = calcularTempoEstimadoTotal(estatisticas.totalContatos);
+    // Sempre retornar o tempoEstimado do banco, se existir
+    let tempoEstimado: string | undefined = campanha.tempoEstimado;
+    if (!tempoEstimado && ['enviando', 'pausada'].includes(campanha.status)) {
+      const ms = calcularTempoEstimadoTotal(estatisticas.pendentes);
       tempoEstimado = formatarTempoEstimado(ms);
     }
 

@@ -75,6 +75,7 @@ export type Campanha = {
   };
   estatisticas: EstatisticasCampanha;
   ultimaAtualizacao?: number;
+  tempoEstimado?: string;
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

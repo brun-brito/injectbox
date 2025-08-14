@@ -75,7 +75,7 @@ export const CampanhaCard: React.FC<CampanhaCardProps> = ({
         {/* Exibir estimativa de tempo se disponível */}
         {((campanha.status === 'enviando' || campanha.status === 'pausada') && (campanha.tempoEstimado || campanha.progresso?.tempoEstimado)) && (
           <small>
-            Tempo estimado: {campanha.tempoEstimado || campanha.progresso?.tempoEstimado}
+            Tempo restante estimado: {campanha.tempoEstimado || campanha.progresso?.tempoEstimado}
           </small>
         )}
       </div>
@@ -145,6 +145,21 @@ export const CampanhaCard: React.FC<CampanhaCardProps> = ({
               </button>
             )}
           </>
+        )}
+        {/* Adicionar botão de cancelar para status pausada */}
+        {campanha.status === 'pausada' && onCancelar && (
+          <button
+            onClick={() => onCancelar(campanha.id!)}
+            disabled={cancelandoCampanha === campanha.id}
+            className="btn-acao cancelar-envio"
+            title="Cancelar envio (irreversível)"
+          >
+            {cancelandoCampanha === campanha.id ? (
+              <div className="loading-spinner" />
+            ) : (
+              <Icons.FiSquare size={16} />
+            )}
+          </button>
         )}
         
         {['rascunho', 'pausada', 'cancelada'].includes(campanha.status) && onDeletar && (

@@ -60,7 +60,7 @@ export function usePollingCampanha(onStatusChange?: (status: StatusCampanha) => 
         });
 
         // Parar polling se campanha finalizou
-        if (['concluida', 'cancelada', 'pausada'].includes(newStatus.status)) {
+        if (['concluida', 'cancelada'].includes(newStatus.status)) {
           stopPolling();
         }
       }
