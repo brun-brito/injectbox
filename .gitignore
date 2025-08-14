@@ -19,7 +19,9 @@
 
 # production
 /build
-
+/functions
+.firebaserc
+firebase.json
 # misc
 .DS_Store
 *.pem

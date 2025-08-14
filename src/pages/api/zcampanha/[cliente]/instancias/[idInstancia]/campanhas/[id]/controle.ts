@@ -193,7 +193,7 @@ async function retomarCampanha(
 
   // Chamar a API de iniciar-envio para retomar o processo
   try {
-    const url = `${getBaseUrl()}/api/zcampanha/${cliente}/instancias/${idInstancia}/campanhas/${campanhaId}/iniciar-envio`;
+    const url = `${getBaseUrl()}/processaCampanhaHttp?campanhaId=${campanhaId}&cliente=${cliente}&idInstancia=${idInstancia}`;
     console.log(`[${campanhaId}] Chamando: ${url}`);
     
     const response = await fetch(url, {
@@ -432,10 +432,10 @@ export function limparControleCampanha(campanhaId: string, cliente: string, idIn
 
 // Função auxiliar para obter a URL base
 function getBaseUrl(): string {
-  if (process.env.NODE_ENV === 'production') {
-    return process.env.NEXT_PUBLIC_APP_URL || 'https://your-domain.com';
-  }
-  return 'http://localhost:3000';
+  const urlDev = `http://127.0.0.1:9999/injectbox-1/us-central1/processaCampanhaHttp`;
+  const urlProd = `https://us-central1-injectbox-1.cloudfunctions.net/processaCampanhaHttp`;
+
+  return process.env.NODE_ENV === 'production' ? urlProd : urlDev;
 }
 
 // Função auxiliar para extrair parâmetros da referência do Firestore

@@ -517,38 +517,33 @@ const CampanhasPage = () => {
     setErro('');
 
     try {
-      const response = await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/campanhas/${campanhaId}/iniciar-envio`, {
+      const urlDev = `http://127.0.0.1:9999/injectbox-1/us-central1/processaCampanhaHttp?campanhaId=${campanhaId}&cliente=${cliente}&idInstancia=${idInstancia}`;
+      // Para ambiente de produção (Cloud Functions)
+      const urlProd = `https://us-central1-injectbox-1.cloudfunctions.net/processaCampanhaHttp?campanhaId=${campanhaId}&cliente=${cliente}&idInstancia=${idInstancia}`;
+      
+      const url = process.env.NODE_ENV === 'production' ? urlProd : urlDev;
+      
+       // Dispara o fetch, mas não espera resposta
+      fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+      }).catch(error => {
+        // Opcional: log de erro, mas não bloqueia o fluxo
+        console.error('Erro ao disparar envio:', error);
       });
 
-      const data = await response.json();
+      // Atualiza estado e inicia polling imediatamente
+      setErro('');
+      setCampanhas(prev => prev.map(campanha => 
+        campanha.id === campanhaId 
+          ? { ...campanha, status: 'enviando' as Type.StatusCampanha, dataInicio: Date.now() }
+          : campanha
+      ));
+      startPolling(campanhaId, cliente, idInstancia);
+      setCampanhaAcompanhada(campanhaId);
+      setMostrarModalProgresso(true);
+      setAviso(`Envio iniciado!\nVocê pode acompanhar o progresso em tempo real.`);
 
-      if (response.ok) {
-        setErro(''); // Limpar qualquer erro anterior
-        
-        // Atualizar a campanha na lista local
-        setCampanhas(prev => prev.map(campanha => 
-          campanha.id === campanhaId 
-            ? { ...campanha, status: 'enviando' as Type.StatusCampanha, dataInicio: Date.now() }
-            : campanha
-        ));
-
-        // Iniciar acompanhamento via polling
-        startPolling(campanhaId, cliente, idInstancia);
-        setCampanhaAcompanhada(campanhaId);
-        setMostrarModalProgresso(true); // Mostrar modal automaticamente
-
-        // Mostrar feedback de sucesso
-        setAviso(`Envio iniciado com sucesso!\n\nTotal: ${data.totalContatos} contatos\nLotes: ${data.totalLotes}\n\nVocê pode acompanhar o progresso em tempo real.`);
-        
-      } else {
-        setErro(data.error || 'Erro ao iniciar envio da campanha');
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Erro de conexão ao iniciar envio da campanha';
-      setErro(errorMessage);
-      console.error('Erro ao iniciar envio:', error);
     } finally {
       setEnviandoCampanha(null);
     }

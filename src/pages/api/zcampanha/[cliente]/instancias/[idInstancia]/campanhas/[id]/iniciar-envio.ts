@@ -161,6 +161,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
+    // VERIFICAÇÃO CRÍTICA: Em produção, sempre usar modo simplificado para lotes grandes
+    if (IS_PRODUCTION && contatosPendentes.length > 15) {
+      console.log(`🔧 [${id}] PRODUÇÃO: Ativando modo simplificado para ${contatosPendentes.length} contatos`);
+      return processarLoteSimplificado(campanha, contatosPendentes.slice(0, 15), campanhaRef, cliente, idInstancia, res);
+    }
+
     console.log(`[${id}] INICIAR/RETOMAR ENVIO: ${contatosPendentes.length} contatos pendentes`);
 
     // Buscar tokens necessários
@@ -272,118 +278,118 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 // NOVA FUNÇÃO: Processamento simplificado para produção
-// async function processarLoteSimplificado(
-//   campanha: Campanha,
-//   contatos: LogEnvio[],
-//   campanhaRef: FirebaseDocRef,
-//   cliente: string,
-//   idInstancia: string,
-//   res: NextApiResponse
-// ) {
-//   console.log(`🚀 [${campanha.id}] PROCESSAMENTO SIMPLIFICADO: ${contatos.length} contatos`);
+async function processarLoteSimplificado(
+  campanha: Campanha,
+  contatos: LogEnvio[],
+  campanhaRef: FirebaseDocRef,
+  cliente: string,
+  idInstancia: string,
+  res: NextApiResponse
+) {
+  console.log(`🚀 [${campanha.id}] PROCESSAMENTO SIMPLIFICADO: ${contatos.length} contatos`);
   
-//   // Responder imediatamente
-//   res.status(200).json({
-//     message: 'Processamento simplificado iniciado',
-//     totalContatos: contatos.length,
-//     modo: 'simplificado',
-//     ambiente: 'PRODUÇÃO'
-//   });
+  // Responder imediatamente
+  res.status(200).json({
+    message: 'Processamento simplificado iniciado',
+    totalContatos: contatos.length,
+    modo: 'simplificado',
+    ambiente: 'PRODUÇÃO'
+  });
 
-//   // Processar de forma simplificada
-//   try {
-//     const { tokenInstancia, clientToken } = await buscarTokens(cliente, idInstancia);
-//     if (!tokenInstancia || !clientToken) {
-//       throw new Error('Tokens não encontrados');
-//     }
+  // Processar de forma simplificada
+  try {
+    const { tokenInstancia, clientToken } = await buscarTokens(cliente, idInstancia);
+    if (!tokenInstancia || !clientToken) {
+      throw new Error('Tokens não encontrados');
+    }
 
-//     // Criar instância do MensagemSender
-//     const sender = new MensagemSender({
-//       tokenInstancia,
-//       clientToken,
-//       idInstancia,
-//       timeout: CONFIG_ENVIO.TIMEOUT_REQUISICAO
-//     });
+    // Criar instância do MensagemSender
+    const sender = new MensagemSender({
+      tokenInstancia,
+      clientToken,
+      idInstancia,
+      timeout: CONFIG_ENVIO.TIMEOUT_REQUISICAO
+    });
 
-//     // Processar contatos sequencialmente com timeout rígido
-//     for (let i = 0; i < contatos.length; i++) {
-//       // NOVO: Verificar pausa/cancelamento antes de cada envio
-//       if (await devePararCampanha(campanha.id!, cliente, idInstancia)) {
-//         console.log(`[${campanha.id}] Pausa/cancelamento detectado durante envio do lote. Interrompendo imediatamente.`);
-//         break;
-//       }
+    // Processar contatos sequencialmente com timeout rígido
+    for (let i = 0; i < contatos.length; i++) {
+      // NOVO: Verificar pausa/cancelamento antes de cada envio
+      if (await devePararCampanha(campanha.id!, cliente, idInstancia)) {
+        console.log(`[${campanha.id}] Pausa/cancelamento detectado durante envio do lote. Interrompendo imediatamente.`);
+        break;
+      }
 
-//       const contato = contatos[i];
-//       const inicioEnvio = Date.now();
+      const contato = contatos[i];
+      const inicioEnvio = Date.now();
       
-//       try {
-//         contato.status = 'enviando';
-//         contato.timestampEnvio = inicioEnvio;
+      try {
+        contato.status = 'enviando';
+        contato.timestampEnvio = inicioEnvio;
         
-//         // NOVO: Obter variação para qualquer tipo de mensagem
-//         const { conteudo: conteudoParaEnvio, variacaoInfo } = obterConteudoComVariacao(
-//           campanha.conteudo, 
-//           campanha.conteudo.variacoes || [campanha.conteudo.texto || ''], 
-//           i, 
-//           i
-//         );
+        // NOVO: Obter variação para qualquer tipo de mensagem
+        const { conteudo: conteudoParaEnvio, variacaoInfo } = obterConteudoComVariacao(
+          campanha.conteudo, 
+          campanha.conteudo.variacoes || [campanha.conteudo.texto || ''], 
+          i, 
+          i
+        );
 
-//         // NOVO: Salvar variação usada no log
-//         if (variacaoInfo) {
-//           contato.variacaoUsada = variacaoInfo;
-//         }
+        // NOVO: Salvar variação usada no log
+        if (variacaoInfo) {
+          contato.variacaoUsada = variacaoInfo;
+        }
         
-//         // Enviar mensagem com tipo correto
-//         const resultado = await Promise.race([
-//           sender.enviarMensagem(contato, conteudoParaEnvio as ConteudoMensagem),
-//           new Promise<ResultadoEnvio>((_, reject) => 
-//             setTimeout(() => reject(new Error('Timeout individual')), CONFIG_ENVIO.TIMEOUT_REQUISICAO)
-//           )
-//         ]) as ResultadoEnvio;
+        // Enviar mensagem com tipo correto
+        const resultado = await Promise.race([
+          sender.enviarMensagem(contato, conteudoParaEnvio as ConteudoMensagem),
+          new Promise<ResultadoEnvio>((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout individual')), CONFIG_ENVIO.TIMEOUT_REQUISICAO)
+          )
+        ]) as ResultadoEnvio;
 
-//         const fimEnvio = Date.now();
-//         contato.tempoResposta = fimEnvio - inicioEnvio;
+        const fimEnvio = Date.now();
+        contato.tempoResposta = fimEnvio - inicioEnvio;
         
-//         if (resultado.sucesso) {
-//           contato.status = 'sucesso';
-//           contato.codigoResposta = resultado.codigoResposta ? parseInt(resultado.codigoResposta, 10) : undefined;
-//         } else {
-//           contato.status = 'erro';
-//           contato.tentativas++;
-//           contato.mensagemErro = resultado.erro;
-//         }
+        if (resultado.sucesso) {
+          contato.status = 'sucesso';
+          contato.codigoResposta = resultado.codigoResposta ? parseInt(resultado.codigoResposta, 10) : undefined;
+        } else {
+          contato.status = 'erro';
+          contato.tentativas++;
+          contato.mensagemErro = resultado.erro;
+        }
 
-//         console.log(`📞 [${campanha.id}] Contato ${i + 1}/${contatos.length}: ${contato.status} (${contato.tempoResposta}ms)`);
+        console.log(`📞 [${campanha.id}] Contato ${i + 1}/${contatos.length}: ${contato.status} (${contato.tempoResposta}ms)`);
 
-//       } catch (error) {
-//         contato.status = 'erro';
-//         contato.tentativas++;
-//         contato.mensagemErro = error instanceof Error ? error.message : 'Erro desconhecido';
-//         contato.tempoResposta = Date.now() - inicioEnvio;
-//         console.error(`❌ [${campanha.id}] Erro contato ${i + 1}:`, error);
-//       }
+      } catch (error) {
+        contato.status = 'erro';
+        contato.tentativas++;
+        contato.mensagemErro = error instanceof Error ? error.message : 'Erro desconhecido';
+        contato.tempoResposta = Date.now() - inicioEnvio;
+        console.error(`❌ [${campanha.id}] Erro contato ${i + 1}:`, error);
+      }
 
-//       contato.ultimaTentativa = Date.now();
+      contato.ultimaTentativa = Date.now();
       
-//       // Delay menor entre mensagens
-//       if (i < contatos.length - 1) {
-//         await delay(1000); // 1 segundo apenas
-//       }
-//     }
+      // Delay menor entre mensagens
+      if (i < contatos.length - 1) {
+        await delay(1000); // 1 segundo apenas
+      }
+    }
 
-//     // Atualizar logs no banco
-//     await atualizarLogsCampanha(campanhaRef, contatos);
+    // Atualizar logs no banco
+    await atualizarLogsCampanha(campanhaRef, contatos);
     
-//     console.log(`✅ [${campanha.id}] Processamento simplificado concluído`);
+    console.log(`✅ [${campanha.id}] Processamento simplificado concluído`);
 
-//   } catch (error) {
-//     console.error(`💥 [${campanha.id}] Erro no processamento simplificado:`, error);
-//     await campanhaRef.update({
-//       status: 'pausada' as StatusCampanha,
-//       ultimaAtualizacao: Date.now()
-//     });
-//   }
-// }
+  } catch (error) {
+    console.error(`💥 [${campanha.id}] Erro no processamento simplificado:`, error);
+    await campanhaRef.update({
+      status: 'pausada' as StatusCampanha,
+      ultimaAtualizacao: Date.now()
+    });
+  }
+}
 
 // NOVA FUNÇÃO: Processamento com controle de timeout
 async function processarCampanhaSimplificada(

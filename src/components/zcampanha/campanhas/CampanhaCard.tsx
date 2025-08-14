@@ -73,7 +73,7 @@ export const CampanhaCard: React.FC<CampanhaCardProps> = ({
           <small> Pausada em: {campanha.pausadaEm ? new Date(campanha.pausadaEm).toLocaleString('pt-BR') : '-'}</small>
         )}
         {/* Exibir estimativa de tempo se disponível */}
-        {(campanha.tempoEstimado || campanha.progresso?.tempoEstimado) && (
+        {((campanha.status === 'enviando' || campanha.status === 'pausada') && (campanha.tempoEstimado || campanha.progresso?.tempoEstimado)) && (
           <small>
             Tempo estimado: {campanha.tempoEstimado || campanha.progresso?.tempoEstimado}
           </small>
