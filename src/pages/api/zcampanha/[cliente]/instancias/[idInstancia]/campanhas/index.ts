@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { dbAdmin } from '@/lib/firebaseAdmin';
 import MensagemSender from '@/utils/mensagemSender';
+import { calcularTempoEstimadoTotal, formatarTempoEstimado } from '@/utils/calculaTempoEstimado';
 
 // Tipos para as campanhas
 export type StatusCampanha = 'rascunho' | 'agendada' | 'enviando' | 'pausada' | 'concluida' | 'cancelada';
@@ -163,6 +164,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         percentualSucesso: 0
       };
 
+      // Calcular tempo estimado inicial
+      const tempoEstimadoMs = calcularTempoEstimadoTotal(contatos.length);
+      const tempoEstimadoStr = formatarTempoEstimado(tempoEstimadoMs);
+
       // Configurações padrão definidas no backend
       const configuracoesPadrao = {
         delayEntreEnvios: 5, // 5 segundos
@@ -187,6 +192,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         conteudo: conteudoFiltrado,
         configuracoes: configuracoesPadrao,
         estatisticas: estatisticasIniciais,
+        tempoEstimado: tempoEstimadoStr // Adicionado tempo estimado inicial
       };
 
       if (descricao?.trim()) {
@@ -316,6 +322,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           erros: 0,
           percentualSucesso: 0
         };
+        
+        const tempoEstimadoMs = calcularTempoEstimadoTotal(contatos.length);
+        dadosAtualizacao.tempoEstimado = formatarTempoEstimado(tempoEstimadoMs);
       }
 
       // Validação básica do conteúdo da mensagem

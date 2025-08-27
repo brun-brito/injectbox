@@ -1,5 +1,5 @@
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
-const DELAY_ENTRE_ENVIOS = IS_PRODUCTION ? 1000 : 1500;
+const DELAY_ENTRE_ENVIOS = IS_PRODUCTION ? 1000 : 10000;
 const TEMPO_RESPOSTA_API = 2500; // Tempo médio de resposta em milissegundos (800ms a 2000ms)
 
 export function calcularTempoEstimadoTotal(contatosRestantes: number): number {
@@ -10,7 +10,16 @@ export function calcularTempoEstimadoTotal(contatosRestantes: number): number {
 }
 
 export function formatarTempoEstimado(ms: number): string {
-  const minutos = Math.floor(ms / 1000 / 60);
-  const segundos = Math.floor((ms / 1000) % 60);
-  return `${minutos}m ${segundos}s`;
+  const totalSegundos = Math.floor(ms / 1000);
+  const horas = Math.floor(totalSegundos / 3600);
+  const minutos = Math.floor((totalSegundos % 3600) / 60);
+  const segundos = totalSegundos % 60;
+
+  if (horas > 0) {
+    return `${horas}h ${minutos}m ${segundos}s`;
+  }
+  if (minutos > 0) {
+    return `${minutos}m ${segundos}s`;
+  }
+  return `${segundos}s`;
 }
