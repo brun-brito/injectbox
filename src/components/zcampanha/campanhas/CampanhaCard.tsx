@@ -16,6 +16,7 @@ type CampanhaCardProps = {
   cancelandoCampanha?: string | null;
   getCorStatus: (status: StatusCampanha) => string;
   traduzirStatus: (status: StatusCampanha) => string;
+  loadingDelecao?: boolean;
 };
 
 export const CampanhaCard: React.FC<CampanhaCardProps> = ({
@@ -32,6 +33,7 @@ export const CampanhaCard: React.FC<CampanhaCardProps> = ({
   cancelandoCampanha,
   getCorStatus,
   traduzirStatus,
+  loadingDelecao,
 }) => {
   return (
     <div className="campanha-card">
@@ -73,9 +75,9 @@ export const CampanhaCard: React.FC<CampanhaCardProps> = ({
           <small> Pausada em: {campanha.pausadaEm ? new Date(campanha.pausadaEm).toLocaleString('pt-BR') : '-'}</small>
         )}
         {/* Exibir estimativa de tempo se disponível */}
-        {((campanha.status === 'enviando' || campanha.status === 'pausada') && (campanha.tempoEstimado || campanha.progresso?.tempoEstimado)) && (
+        {['enviando', 'pausada', 'rascunho'].includes(campanha.status) && (
           <small>
-            Tempo restante estimado: {campanha.tempoEstimado || campanha.progresso?.tempoEstimado}
+            Tempo restante estimado: {campanha.tempoEstimado || campanha.progresso?.tempoEstimado || '-'}
           </small>
         )}
       </div>
@@ -167,8 +169,13 @@ export const CampanhaCard: React.FC<CampanhaCardProps> = ({
             onClick={() => onDeletar(campanha.id!)}
             className="btn-acao deletar"
             title="Deletar campanha"
+            disabled={loadingDelecao}
           >
-            <Icons.FiTrash2 size={16} />
+            {loadingDelecao ? (
+              <div className="loading-spinner" />
+            ) : (
+              <Icons.FiTrash2 size={16} />
+            )}
           </button>
         )}
       </div>

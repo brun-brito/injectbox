@@ -214,6 +214,49 @@ const CampanhasPage = () => {
     }
   };
 
+  // Adicionar estado para subgrupos
+  const [subgrupos, setSubgrupos] = useState<Array<{
+    id: string;
+    nome: string;
+    cor: string;
+    totalContatos: number;
+    contatos: string[];
+    grupoId: string;
+  }>>([]);
+  const [subgruposSelecionados, setSubgruposSelecionados] = useState<string[]>([]);
+  const [modalSubgrupos, setModalSubgrupos] = useState(false);
+
+  // Buscar subgrupos de todos os grupos
+  const fetchTodosSubgrupos = async () => {
+    if (!grupos.length) return;
+    const allSubgrupos: Array<{
+      id: string;
+      nome: string;
+      cor: string;
+      totalContatos: number;
+      contatos: string[];
+      grupoId: string;
+    }> = [];
+    for (const grupo of grupos) {
+      const response = await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/grupos/${grupo.id}/subgrupos`);
+      const data = await response.json();
+      (data.subgrupos || []).forEach((sub: any) => {
+        allSubgrupos.push({
+          ...sub,
+          grupoId: grupo.id
+        });
+      });
+    }
+    setSubgrupos(allSubgrupos);
+  };
+
+  useEffect(() => {
+    if (grupos.length > 0) {
+      fetchTodosSubgrupos();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grupos]);
+
   useEffect(() => {
     if (cliente && idInstancia) {
       fetchCampanhas();
@@ -237,23 +280,29 @@ const CampanhasPage = () => {
     }
   }, [cliente, idInstancia]);
 
-  // Função para aplicar seleção de grupos
-  const aplicarSelecaoGrupos = () => {
+  // Função para aplicar seleção de grupos e subgrupos
+  const aplicarSelecaoGruposESubgrupos = () => {
     const contatosDeGrupos = gruposSelecionados.flatMap(gId => {
       const grupo = grupos.find(g => g.id === gId);
       return grupo ? grupo.contatos : [];
     });
+    const contatosDeSubgrupos = subgruposSelecionados.flatMap(subId => {
+      const sub = subgrupos.find(s => s.id === subId);
+      return sub ? sub.contatos : [];
+    });
 
-    // IDs de todos os contatos individuais e de grupos
+    // IDs de todos os contatos individuais, de grupos e subgrupos
     const idsUnicos = new Set([
       ...contatosSelecionados.map(c => c.id),
-      ...contatosDeGrupos
+      ...contatosDeGrupos,
+      ...contatosDeSubgrupos
     ]);
 
     const todosContatos = contatos.filter(contato => idsUnicos.has(contato.id));
 
     setContatosSelecionados(todosContatos);
     setModalGrupos(false);
+    setModalSubgrupos(false);
   };
 
   useEffect(() => {
@@ -327,12 +376,17 @@ const CampanhasPage = () => {
     setBotoesAcao(novosBotoes);
   };
 
+  const [loadingCampanha, setLoadingCampanha] = useState(false);
+  const [loadingDelecao, setLoadingDelecao] = useState(false);
+
   // Criar ou atualizar campanha
   const salvarCampanha = async () => {
-    if (!nome.trim() || contatosSelecionados.length === 0) {
+    if (!nome.trim() || contatosSelecionados.length === 0 || loadingCampanha) {
       setErro('Nome e pelo menos um contato são obrigatórios');
       return;
     }
+
+    setLoadingCampanha(true);
 
     // Validação por tipo de mensagem
     let conteudo: Type.ConteudoMensagem;
@@ -424,6 +478,8 @@ const CampanhasPage = () => {
       }
     } catch {
       setErro(`Erro de conexão ao ${isEditing ? 'atualizar' : 'criar'} campanha`);
+    } finally {
+      setLoadingCampanha(false);
     }
   };
 
@@ -458,6 +514,7 @@ const CampanhasPage = () => {
   };
 
   const executarDelecaoCampanha = async (id: string) => {
+    setLoadingDelecao(true);
     try {
       await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/campanhas`, {
         method: 'DELETE',
@@ -467,6 +524,8 @@ const CampanhasPage = () => {
       fetchCampanhas();
     } catch {
       setErro('Erro ao deletar campanha');
+    } finally {
+      setLoadingDelecao(false);
     }
   };
 
@@ -1082,11 +1141,16 @@ const CampanhasPage = () => {
       const grupo = grupos.find(g => g.id === gId);
       return grupo ? grupo.contatos : [];
     });
+    const contatosDeSubgrupos = subgruposSelecionados.flatMap(subId => {
+      const sub = subgrupos.find(s => s.id === subId);
+      return sub ? sub.contatos : [];
+    });
 
-    // IDs de todos os contatos individuais e de grupos
+    // IDs de todos os contatos individuais, de grupos e subgrupos
     const idsUnicos = new Set([
       ...contatosSelecionados.map(c => c.id),
-      ...contatosDeGrupos
+      ...contatosDeGrupos,
+      ...contatosDeSubgrupos
     ]);
 
     const totalGeral = idsUnicos.size;
@@ -1209,6 +1273,64 @@ const CampanhasPage = () => {
               {gruposSelecionados.length > 0 ? 'Gerenciar Grupos' : 'Selecionar Grupos'}
             </button>
           </div>
+
+          {/* Card de Subgrupos */}
+          <div className="destinatario-card">
+            <div className="card-header">
+              <div className="card-icon subgrupos">
+                <Icons.FiLayers size={20} />
+              </div>
+              <div className="card-info">
+                <h4>Subgrupos</h4>
+                <span className="card-count">{subgruposSelecionados.length} subgrupos • {contatosDeSubgrupos.length} contatos</span>
+              </div>
+            </div>
+            <div className="card-content">
+              {subgruposSelecionados.length > 0 ? (
+                <div className="preview-subgrupos">
+                  {subgruposSelecionados.slice(0, 2).map(subId => {
+                    const sub = subgrupos.find(s => s.id === subId);
+                    return sub ? (
+                      <div key={sub.id} className="subgrupo-preview">
+                        <div 
+                          className="subgrupo-badge" 
+                          style={{ backgroundColor: sub.cor }}
+                        >
+                          <Icons.FiLayers size={12} />
+                        </div>
+                        <div className="subgrupo-info-preview">
+                          <span className="subgrupo-nome-preview">{sub.nome} </span>
+                          <span className="subgrupo-total-preview">({sub.totalContatos} contatos)</span>
+                        </div>
+                      </div>
+                    ) : null;
+                  })}
+                  {subgruposSelecionados.length > 2 && (
+                    <div className="subgrupo-preview mais">
+                      <div className="subgrupo-badge mais-badge">
+                        +{subgruposSelecionados.length - 2}
+                      </div>
+                      <div className="subgrupo-info-preview">
+                        <span className="subgrupo-nome-preview">mais subgrupos</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <span>Nenhum subgrupo selecionado</span>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setModalSubgrupos(true)}
+              className="card-action-btn subgrupos"
+            >
+              <Icons.FiLayers size={16} />
+              {subgruposSelecionados.length > 0 ? 'Gerenciar Subgrupos' : 'Selecionar Subgrupos'}
+            </button>
+          </div>
         </div>
 
         {/* Resumo Total */}
@@ -1225,6 +1347,8 @@ const CampanhasPage = () => {
                 {contatosSelecionados.length > 0 && `${contatosSelecionados.length} contatos individuais`}
                 {contatosSelecionados.length > 0 && gruposSelecionados.length > 0 && ' + '}
                 {gruposSelecionados.length > 0 && `${gruposSelecionados.length} grupos (${contatosDeGrupos.length} contatos)`}
+                {(contatosSelecionados.length > 0 || gruposSelecionados.length > 0) && subgruposSelecionados.length > 0 && ' + '}
+                {subgruposSelecionados.length > 0 && `${subgruposSelecionados.length} subgrupos (${contatosDeSubgrupos.length} contatos)`}
               </span>
             </div>
           </div>
@@ -1320,6 +1444,7 @@ const CampanhasPage = () => {
                   cancelandoCampanha={cancelandoCampanha}
                   getCorStatus={getCorStatus}
                   traduzirStatus={traduzirStatus}
+                  loadingDelecao={loadingDelecao}
                 />
               ))}
             </div>
@@ -1395,6 +1520,7 @@ const CampanhasPage = () => {
         renderizarSelecaoContatos={renderizarSelecaoContatos}
         salvarCampanha={salvarCampanha}
         fecharModalCriar={fecharModalCriar}
+        loadingCampanha={loadingCampanha}
       />
 
       {/* Componente de modais de seleção */}
@@ -1411,7 +1537,7 @@ const CampanhasPage = () => {
         grupos={grupos}
         gruposSelecionados={gruposSelecionados}
         setGruposSelecionados={setGruposSelecionados}
-        aplicarSelecaoGrupos={aplicarSelecaoGrupos}
+        aplicarSelecaoGrupos={aplicarSelecaoGruposESubgrupos}
       />
 
       {/* Modal de detalhes da campanha */}
@@ -1686,6 +1812,61 @@ const CampanhasPage = () => {
 
       {/* Modal de progresso em tempo real */}
       <ProgressoEnvio />
+
+      {/* Adicione modal de seleção de subgrupos (simples) */}
+      {modalSubgrupos && (
+        <div className="modal-overlay" onClick={() => setModalSubgrupos(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Selecionar Subgrupos</h3>
+              <button onClick={() => setModalSubgrupos(false)} className="btn-fechar-modal">
+                <Icons.FiX size={20} />
+              </button>
+            </div>
+            <div className="modal-body">
+              {subgrupos.length === 0 ? (
+                <div className="empty-state">Nenhum subgrupo disponível</div>
+              ) : (
+                <div className="subgrupos-lista">
+                  {subgrupos.map(sub => (
+                    <label key={sub.id} className="subgrupo-checkbox" style={{ backgroundColor: sub.cor, borderRadius: 8, padding: 8, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={subgruposSelecionados.includes(sub.id)}
+                        onChange={e => {
+                          if (e.target.checked) {
+                            setSubgruposSelecionados([...subgruposSelecionados, sub.id]);
+                          } else {
+                            setSubgruposSelecionados(subgruposSelecionados.filter(id => id !== sub.id));
+                          }
+                        }}
+                        style={{ marginRight: 8 }}
+                      />
+                      <span style={{ fontWeight: 600 }}>{sub.nome}</span>
+                      <span style={{ fontSize: 12, color: '#fff', background: '#23232b', borderRadius: 4, padding: '2px 6px' }}>{sub.totalContatos} contatos</span>
+                      <span style={{ fontSize: 12, color: '#fff', background: '#31313d', borderRadius: 4, padding: '2px 6px' }}>Grupo: {grupos.find(g => g.id === sub.grupoId)?.nome || '-'}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button
+                onClick={aplicarSelecaoGruposESubgrupos}
+                className="btn-confirmar"
+              >
+                Confirmar Seleção
+              </button>
+              <button
+                onClick={() => setModalSubgrupos(false)}
+                className="btn-cancelar"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style jsx>{campanhaStyle}</style>
     </div>

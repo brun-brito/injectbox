@@ -2810,4 +2810,20 @@ export const campanhaStyle = `
             align-items: center;
           }
         }
+
+        .loading-spinner {
+          width: 16px;
+          height: 16px;
+          border: 2px solid rgba(255,255,255,0.3);
+          border-top: 2px solid #3b82f6;
+          border-radius: 50%;
+          display: inline-block;
+          animation: spin 1s linear infinite;
+          vertical-align: middle;
+          margin-right: 4px;
+        }
+        @keyframes spin {
+          0% { transform: rotate(0deg);}
+          100% { transform: rotate(360deg);}
+        }
       `

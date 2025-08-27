@@ -61,6 +61,7 @@ type CampanhaFormProps = {
   renderizarSelecaoContatos: () => React.ReactNode;
   salvarCampanha: () => Promise<void>;
   fecharModalCriar: () => void;
+  loadingCampanha: boolean;
 };
 
 const MenuVariaveis = ({ mostrar, onInserir, onFechar }: { 
@@ -138,6 +139,7 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
   renderizarSelecaoContatos,
   salvarCampanha,
   fecharModalCriar,
+  loadingCampanha,
 }) => {
   if (!aberta) return null;
 
@@ -611,9 +613,18 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
         </div>
         
         <div className="modal-actions">
-          <button onClick={salvarCampanha} className="btn-criar" disabled={!isFormValid}>
-            {campanhaEmEdicao ? <Icons.FiCheck size={16} /> : <Icons.FiPlus size={16} />}
-            {campanhaEmEdicao ? 'Salvar Alterações' : 'Criar Campanha'}
+          <button onClick={salvarCampanha} className="btn-criar" disabled={!isFormValid || loadingCampanha}>
+            {loadingCampanha ? (
+              <>
+                <div className="loading-spinner" />
+                {campanhaEmEdicao ? 'Salvando...' : 'Criando...'}
+              </>
+            ) : (
+              <>
+                {campanhaEmEdicao ? <Icons.FiCheck size={16} /> : <Icons.FiPlus size={16} />}
+                {campanhaEmEdicao ? 'Salvar Alterações' : 'Criar Campanha'}
+              </>
+            )}
           </button>
           <button onClick={fecharModalCriar} className="btn-cancelar">
             Cancelar
