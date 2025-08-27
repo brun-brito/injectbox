@@ -5,6 +5,17 @@ import Erro from '@/components/Erro';
 import Aviso from '@/components/Aviso';
 import Confirmacao from '@/components/Confirmacao';
 import { withZCampanhaAuth } from '@/components/zcampanha/withZCampanhaAuth';
+import { grupoStyle } from '@/styles/grupo-style';
+
+type SubgrupoContatos = {
+  id?: string;
+  nome: string;
+  contatos: string[];
+  cor?: string;
+  dataCriacao: number;
+  dataAtualizacao: number;
+  totalContatos: number;
+};
 
 type GrupoContatos = {
   id?: string;
@@ -76,6 +87,48 @@ const GruposPage = () => {
   // Estados para o modal de contatos
   const [buscaContatos, setBuscaContatos] = useState('');
 
+  // Estados para seleção rápida
+  const [quantidadeSelecaoRapida, setQuantidadeSelecaoRapida] = useState<number>(0);
+
+  // Estados para loading de operações
+  const [loadingGrupo, setLoadingGrupo] = useState(false);
+  const [loadingDelecao, setLoadingDelecao] = useState(false);
+
+  // Estados para subgrupos (local, não salva no banco até confirmação)
+  const [subgrupos, setSubgrupos] = useState<SubgrupoContatos[]>([]);
+  const [subgruposRemover, setSubgruposRemover] = useState<string[]>([]); // IDs para remover no modo edição
+  const [modalSubgrupo, setModalSubgrupo] = useState(false);
+  const [nomeSubgrupo, setNomeSubgrupo] = useState('');
+  const [corSubgrupo, setCorSubgrupo] = useState('#3b82f6');
+  const [contatosSubgrupo, setContatosSubgrupo] = useState<string[]>([]);
+  const [grupoSelecionadoId, setGrupoSelecionadoId] = useState<string | null>(null);
+
+  // Estados para edição de subgrupo
+  const [subgrupoEmEdicao, setSubgrupoEmEdicao] = useState<SubgrupoContatos | null>(null);
+
+  // Estados para seleção de contatos do subgrupo
+  const [modalContatosSubgrupo, setModalContatosSubgrupo] = useState(false);
+  const [buscaContatosSubgrupo, setBuscaContatosSubgrupo] = useState('');
+
+  // Contatos disponíveis para subgrupo: apenas os do grupo pai
+  const contatosDoGrupoPai = useMemo(() => {
+    return contatos.filter(c => contatosSelecionados.includes(c.id));
+  }, [contatos, contatosSelecionados]);
+
+  const contatosFiltradosSubgrupo = useMemo(() => {
+    let resultado = [...contatosDoGrupoPai];
+    if (buscaContatosSubgrupo.trim()) {
+      const termoBusca = buscaContatosSubgrupo.toLowerCase().trim();
+      resultado = resultado.filter(contato =>
+        contato.nome.toLowerCase().includes(termoBusca) ||
+        contato.numero.includes(termoBusca)
+      );
+    }
+    return resultado.sort((a, b) =>
+      a.nome.toLowerCase().localeCompare(b.nome.toLowerCase())
+    );
+  }, [contatosDoGrupoPai, buscaContatosSubgrupo]);
+
   // Buscar grupos
   const fetchGrupos = async () => {
     setLoading(true);
@@ -98,6 +151,13 @@ const GruposPage = () => {
     } catch (error) {
       console.error('Erro ao carregar contatos:', error);
     }
+  };
+
+  // Buscar subgrupos do grupo selecionado
+  const fetchSubgrupos = async (grupoId: string) => {
+    const response = await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/grupos/${grupoId}/subgrupos`);
+    const data = await response.json();
+    setSubgrupos(data.subgrupos || []);
   };
 
   useEffect(() => {
@@ -134,17 +194,17 @@ const GruposPage = () => {
 
   // Criar ou atualizar grupo
   const salvarGrupo = async () => {
-    if (!isFormValid) {
-      setErro('Nome e pelo menos um contato são obrigatórios');
-      return;
-    }
+    if (!isFormValid || loadingGrupo) return;
+    setLoadingGrupo(true);
+    setErro('');
 
     const dadosGrupo = {
       id: grupoEmEdicao?.id,
       nome: nome.trim(),
       descricao: descricao.trim(),
       contatos: contatosSelecionados,
-      cor: corSelecionada
+      cor: corSelecionada,
+      subgrupos
     };
 
     const isEditing = !!grupoEmEdicao;
@@ -158,18 +218,55 @@ const GruposPage = () => {
         body: JSON.stringify(dadosGrupo)
       });
 
+      const data = await response.json();
+
       if (response.ok) {
+        // Após salvar grupo, salve subgrupos no banco (criação/edição)
+        if (subgrupos.length > 0) {
+          const grupoId = isEditing ? grupoEmEdicao?.id : data.id;
+          const subColUrl = `/api/zcampanha/${cliente}/instancias/${idInstancia}/grupos/${grupoId}/subgrupos`;
+          for (const sub of subgrupos) {
+            if (!sub.id || (isEditing && typeof sub.id === 'string' && sub.id.length < 20)) {
+              // Criar subgrupo (id gerado localmente, não existe no banco)
+              await fetch(subColUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...sub, id: undefined })
+              });
+            } else {
+              // Editar subgrupo (id do banco)
+              await fetch(subColUrl, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(sub)
+              });
+            }
+          }
+        }
+        // Remover subgrupos marcados para remoção
+        if (isEditing && subgruposRemover.length > 0) {
+          const grupoId = grupoEmEdicao?.id;
+          const subColUrl = `/api/zcampanha/${cliente}/instancias/${idInstancia}/grupos/${grupoId}/subgrupos`;
+          for (const subId of subgruposRemover) {
+            await fetch(subColUrl, {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: subId })
+            });
+          }
+        }
         setModalCriar(false);
         limparFormulario();
         fetchGrupos();
-        setAviso(`Grupo ${isEditing ? 'atualizado' : 'criado'} com sucesso!`);
+        setAviso(isEditing ? 'Grupo atualizado com sucesso!' : 'Grupo criado com sucesso!');
         setErro('');
       } else {
-        const data = await response.json();
         setErro(data.error || `Erro ao ${isEditing ? 'atualizar' : 'criar'} grupo`);
       }
     } catch {
       setErro(`Erro de conexão ao ${isEditing ? 'atualizar' : 'criar'} grupo`);
+    } finally {
+      setLoadingGrupo(false);
     }
   };
 
@@ -181,6 +278,8 @@ const GruposPage = () => {
     setContatosSelecionados([]);
     setGrupoEmEdicao(null);
     setErro('');
+    setSubgrupos([]);
+    setGrupoSelecionadoId(null);
   };
 
   // Deletar grupo
@@ -199,6 +298,7 @@ const GruposPage = () => {
   };
 
   const executarDelecaoGrupo = async (id: string) => {
+    setLoadingDelecao(true);
     try {
       await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/grupos`, {
         method: 'DELETE',
@@ -209,17 +309,49 @@ const GruposPage = () => {
       setAviso('Grupo deletado com sucesso!');
     } catch {
       setErro('Erro ao deletar grupo');
+    } finally {
+      setLoadingDelecao(false);
+    }
+  };
+
+  // Função para apagar subgrupo
+  const apagarSubgrupo = async (subgrupoId: string) => {
+    if (!grupoSelecionadoId || !subgrupoId) return;
+    if (!window.confirm('Tem certeza que deseja apagar este subgrupo?')) return;
+    const response = await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/grupos/${grupoSelecionadoId}/subgrupos`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: subgrupoId })
+    });
+    if (response.ok) {
+      fetchSubgrupos(grupoSelecionadoId);
+      setAviso('Subgrupo apagado com sucesso!');
+    } else {
+      const data = await response.json();
+      setErro(data.error || 'Erro ao apagar subgrupo');
     }
   };
 
   // Iniciar edição
-  const iniciarEdicao = (grupo: GrupoContatos) => {
+  const iniciarEdicao = async (grupo: GrupoContatos) => {
     setGrupoEmEdicao(grupo);
     setNome(grupo.nome);
     setDescricao(grupo.descricao || '');
     setCorSelecionada(grupo.cor || '#3b82f6');
     setContatosSelecionados(grupo.contatos);
+    setGrupoSelecionadoId(grupo.id || null);
+    // Carregue subgrupos do banco
+    const response = await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/grupos/${grupo.id}/subgrupos`);
+    const data = await response.json();
+    setSubgrupos(data.subgrupos || []);
+    setSubgruposRemover([]);
     setModalCriar(true);
+  };
+
+  const abrirDetalhesGrupo = (grupo: GrupoContatos) => {
+    setModalDetalhes(grupo);
+    setGrupoSelecionadoId(grupo.id || null);
+    fetchSubgrupos(grupo.id!);
   };
 
   // Filtrar e ordenar contatos no modal
@@ -238,6 +370,85 @@ const GruposPage = () => {
       a.nome.toLowerCase().localeCompare(b.nome.toLowerCase())
     );
   }, [contatos, buscaContatos]);
+
+  // Funções de seleção rápida
+  const marcarTodosContatos = () => {
+    setContatosSelecionados(contatosFiltradosOrdenados.map(c => c.id));
+  };
+
+  const desmarcarTodosContatos = () => {
+    setContatosSelecionados([]);
+  };
+
+  const selecionarPrimeirosContatos = (quantidade: number) => {
+    setContatosSelecionados(contatosFiltradosOrdenados.slice(0, quantidade).map(c => c.id));
+  };
+
+  const selecionarUltimosContatos = (quantidade: number) => {
+    setContatosSelecionados(contatosFiltradosOrdenados.slice(-quantidade).map(c => c.id));
+  };
+
+  // Funções de seleção rápida para subgrupo
+  const marcarTodosContatosSubgrupo = () => {
+    setContatosSubgrupo(contatosFiltradosSubgrupo.map(c => c.id));
+  };
+
+  const desmarcarTodosContatosSubgrupo = () => {
+    setContatosSubgrupo([]);
+  };
+
+  const selecionarPrimeirosContatosSubgrupo = (quantidade: number) => {
+    setContatosSubgrupo(contatosFiltradosSubgrupo.slice(0, quantidade).map(c => c.id));
+  };
+
+  const selecionarUltimosContatosSubgrupo = (quantidade: number) => {
+    setContatosSubgrupo(contatosFiltradosSubgrupo.slice(-quantidade).map(c => c.id));
+  };
+
+  // Função para abrir modal de edição de subgrupo local
+  const editarSubgrupoLocal = (sub: SubgrupoContatos) => {
+    setSubgrupoEmEdicao(sub);
+    setNomeSubgrupo(sub.nome);
+    setCorSubgrupo(sub.cor || '#3b82f6');
+    setContatosSubgrupo(sub.contatos);
+    setModalSubgrupo(true);
+  };
+
+  // Função para salvar subgrupo localmente
+  const salvarSubgrupoLocal = () => {
+    if (!nomeSubgrupo.trim() || contatosSubgrupo.length === 0) return;
+    if (subgrupoEmEdicao && subgrupoEmEdicao.id) {
+      setSubgrupos(subgrupos.map(s =>
+        s.id === subgrupoEmEdicao.id
+          ? { ...s, nome: nomeSubgrupo.trim(), contatos: contatosSubgrupo, cor: corSubgrupo, totalContatos: contatosSubgrupo.length, dataAtualizacao: Date.now() }
+          : s
+      ));
+    } else {
+      setSubgrupos([
+        ...subgrupos,
+        {
+          id: Math.random().toString(36).slice(2),
+          nome: nomeSubgrupo.trim(),
+          contatos: contatosSubgrupo,
+          cor: corSubgrupo,
+          dataCriacao: Date.now(),
+          dataAtualizacao: Date.now(),
+          totalContatos: contatosSubgrupo.length
+        }
+      ]);
+    }
+    setModalSubgrupo(false);
+    setNomeSubgrupo('');
+    setCorSubgrupo('#3b82f6');
+    setContatosSubgrupo([]);
+    setSubgrupoEmEdicao(null);
+  };
+
+  // Função para marcar subgrupo para remoção (no modo edição)
+  const marcarRemoverSubgrupo = (subId: string) => {
+    setSubgruposRemover([...subgruposRemover, subId]);
+    setSubgrupos(subgrupos.filter(s => s.id !== subId));
+  };
 
   // Função para formatar data
   const formatarData = (timestamp: number) => {
@@ -341,7 +552,7 @@ const GruposPage = () => {
                   
                   <div className="grupo-actions">
                     <button
-                      onClick={() => setModalDetalhes(grupo)}
+                      onClick={() => abrirDetalhesGrupo(grupo)}
                       className="btn-acao ver"
                       title="Ver detalhes"
                     >
@@ -360,8 +571,9 @@ const GruposPage = () => {
                       onClick={() => deletarGrupo(grupo.id!, grupo.nome)}
                       className="btn-acao deletar"
                       title="Deletar grupo"
+                      disabled={loadingDelecao}
                     >
-                      <FiTrash2 size={16} />
+                      {loadingDelecao ? <span className="loading-spinner" /> : <FiTrash2 size={16} />}
                     </button>
                   </div>
                 </div>
@@ -476,14 +688,77 @@ const GruposPage = () => {
                   </div>
                 )}
               </div>
+
+              {/* Subgrupos: manipulação local, só salva no banco ao confirmar grupo */}
+              <div className="form-group">
+                <label>Subgrupos</label>
+                <button
+                  type="button"
+                  onClick={() => setModalSubgrupo(true)}
+                  className="btn-criar-subgrupo"
+                >
+                  <FiPlus size={16} /> Adicionar Subgrupo
+                </button>
+                {subgrupos.length > 0 && (
+                  <div className="subgrupos-lista">
+                    {subgrupos.map(sub => (
+                      <div key={sub.id} className="subgrupo-tag" style={{ backgroundColor: sub.cor }}>
+                        {sub.nome} ({sub.totalContatos})
+                        <button
+                          className="btn-editar-subgrupo"
+                          style={{
+                            marginLeft: 8,
+                            background: '#f59e0b',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 6,
+                            padding: '2px 8px',
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => editarSubgrupoLocal(sub)}
+                          title="Editar subgrupo"
+                        >
+                          <FiEdit2 size={14} />
+                        </button>
+                        <button
+                          className="btn-apagar-subgrupo"
+                          style={{
+                            marginLeft: 4,
+                            background: '#ef4444',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 6,
+                            padding: '2px 8px',
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => marcarRemoverSubgrupo(sub.id!)}
+                          title="Apagar subgrupo"
+                        >
+                          <FiTrash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             
             <div className="modal-actions">
-              <button onClick={salvarGrupo} className="btn-criar" disabled={!isFormValid}>
-                {grupoEmEdicao ? <FiCheck size={16} /> : <FiPlus size={16} />}
+              <button 
+                onClick={salvarGrupo} 
+                className="btn-criar"
+                disabled={!isFormValid || loadingGrupo}
+              >
+                {loadingGrupo ? (
+                  <span className="loading-spinner" />
+                ) : grupoEmEdicao ? <FiCheck size={16} /> : <FiPlus size={16} />}
                 {grupoEmEdicao ? 'Salvar Alterações' : 'Criar Grupo'}
               </button>
-              <button onClick={() => { setModalCriar(false); limparFormulario(); }} className="btn-cancelar">
+              <button 
+                onClick={() => { setModalCriar(false); limparFormulario(); }} 
+                className="btn-cancelar"
+                disabled={loadingGrupo}
+              >
                 Cancelar
               </button>
             </div>
@@ -515,10 +790,45 @@ const GruposPage = () => {
               </div>
             </div>
 
+            {/* Seleção rápida */}
             <div className="controles-selecao">
               <div className="info-selecao">
                 <span>{contatosFiltradosOrdenados.length} contatos disponíveis</span>
                 <span>{contatosSelecionados.length} selecionados</span>
+              </div>
+              <div className="selecao-rapida">
+                <button type="button" onClick={marcarTodosContatos} className="btn-selecao-rapida">
+                  Marcar todos
+                </button>
+                <button type="button" onClick={desmarcarTodosContatos} className="btn-selecao-rapida">
+                  Desmarcar todos
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  max={contatosFiltradosOrdenados.length}
+                  value={quantidadeSelecaoRapida > 0 ? quantidadeSelecaoRapida : ''}
+                  onChange={e => setQuantidadeSelecaoRapida(Number(e.target.value))}
+                  placeholder="Qtd"
+                  className="input-qtd-selecao"
+                  style={{ width: 70, marginLeft: 8 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => selecionarPrimeirosContatos(quantidadeSelecaoRapida)}
+                  disabled={!quantidadeSelecaoRapida || quantidadeSelecaoRapida < 1}
+                  className="btn-selecao-rapida"
+                >
+                  Selecionar primeiros
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selecionarUltimosContatos(quantidadeSelecaoRapida)}
+                  disabled={!quantidadeSelecaoRapida || quantidadeSelecaoRapida < 1}
+                  className="btn-selecao-rapida"
+                >
+                  Selecionar últimos
+                </button>
               </div>
             </div>
             
@@ -606,746 +916,207 @@ const GruposPage = () => {
                   </div>
                 </div>
               )}
+
+              {subgrupos.length > 0 && (
+                <div className="subgrupos-detalhes">
+                  <h4>Subgrupos:</h4>
+                  <div className="subgrupos-lista">
+                    {subgrupos.map(sub => (
+                      <div key={sub.id} className="subgrupo-tag" style={{ backgroundColor: sub.cor }}>
+                        {sub.nome} ({sub.totalContatos})
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      <style jsx>{`
-        .grupos-bg {
-          min-height: 100vh;
-          background: #18181b;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          padding: 40px 20px;
-          color: #fff;
-        }
-
-        .voltar-btn {
-          background: #23232b;
-          color: #7dd3fc;
-          border: none;
-          border-radius: 8px;
-          padding: 12px 24px;
-          font-size: 1rem;
-          font-weight: 600;
-          cursor: pointer;
-          margin-bottom: 32px;
-          transition: background 0.2s;
-          align-self: flex-start;
-        }
-
-        .voltar-btn:hover {
-          background: #2d2d38;
-        }
-
-        .grupos-container {
-          background: #23232b;
-          border-radius: 16px;
-          padding: 32px;
-          width: 100%;
-          max-width: 1200px;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-          border: 2px solid #31313d;
-        }
-
-        .header-container {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 24px;
-        }
-
-        h2 {
-          color: #7dd3fc;
-          font-size: 1.5rem;
-          font-weight: 700;
-          margin: 0;
-        }
-
-        .btn-criar-grupo {
-          background: #22c55e;
-          color: #fff;
-          border: none;
-          border-radius: 8px;
-          padding: 12px 20px;
-          font-size: 1rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: background 0.2s;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .btn-criar-grupo:hover {
-          background: #16a34a;
-        }
-
-        .controles-container {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 16px;
-          margin-bottom: 24px;
-          padding: 16px;
-          background: #1e2328;
-          border-radius: 12px;
-          border: 1px solid #31313d;
-        }
-
-        .busca-container {
-          position: relative;
-          flex: 1;
-          max-width: 400px;
-        }
-
-        .busca-icon {
-          position: absolute;
-          left: 12px;
-          top: 50%;
-          transform: translateY(-50%);
-          color: #71717a;
-          z-index: 1;
-        }
-
-        .busca-input {
-          width: 100%;
-          background: #18181b;
-          border: 1px solid #31313d;
-          border-radius: 8px;
-          padding: 12px 16px 12px 40px;
-          font-size: 1rem;
-          color: #fff;
-          outline: none;
-          transition: border-color 0.2s;
-        }
-
-        .busca-input:focus {
-          border-color: #7dd3fc;
-        }
-
-        .busca-input::placeholder {
-          color: #71717a;
-        }
-
-        .info-resultados {
-          color: #bfc7d5;
-          font-size: 0.9rem;
-          white-space: nowrap;
-        }
-
-        .status-message {
-          text-align: center;
-          padding: 32px;
-          font-size: 1.1rem;
-          border-radius: 12px;
-          margin-top: 20px;
-        }
-
-        .status-message.loading {
-          color: #fbbf24;
-          background: rgba(251, 191, 36, 0.1);
-          border: 1px solid rgba(251, 191, 36, 0.2);
-        }
-
-        .status-message.error {
-          color: #ef4444;
-          background: rgba(239, 68, 68, 0.1);
-          border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-
-        .status-message.empty {
-          color: #7dd3fc;
-          background: rgba(125, 211, 252, 0.1);
-          border: 1px solid rgba(125, 211, 252, 0.2);
-        }
-
-        .grupos-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-          gap: 20px;
-          margin-bottom: 24px;
-        }
-
-        .grupo-card {
-          background: #1e2328;
-          border-radius: 12px;
-          border: 1px solid #31313d;
-          padding: 20px;
-          transition: all 0.2s ease;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        }
-
-        .grupo-card:hover {
-          border-color: #7dd3fc;
-          transform: translateY(-2px);
-          box-shadow: 0 4px 16px rgba(125, 211, 252, 0.1);
-        }
-
-        .grupo-header {
-          margin-bottom: 16px;
-        }
-
-        .grupo-info {
-          display: flex;
-          align-items: flex-start;
-          gap: 12px;
-        }
-
-        .grupo-cor {
-          width: 8px;
-          height: 40px;
-          border-radius: 4px;
-          flex-shrink: 0;
-        }
-
-        .grupo-info h3 {
-          color: #fff;
-          font-size: 1.1rem;
-          font-weight: 600;
-          margin: 0 0 4px 0;
-        }
-
-        .grupo-descricao {
-          color: #bfc7d5;
-          font-size: 0.9rem;
-          margin: 0;
-          line-height: 1.4;
-        }
-
-        .grupo-stats {
-          margin-bottom: 16px;
-        }
-
-        .stat-item {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          color: #7dd3fc;
-          font-size: 0.9rem;
-        }
-
-        .grupo-info-bottom {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          margin-bottom: 16px;
-          font-size: 0.8rem;
-          color: #71717a;
-        }
-
-        .grupo-actions {
-          display: flex;
-          gap: 8px;
-          justify-content: flex-end;
-        }
-
-        .btn-acao {
-          background: #2d2d38;
-          color: #bfc7d5;
-          border: 1px solid #31313d;
-          border-radius: 6px;
-          padding: 8px;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.2s;
-        }
-
-        .btn-acao:hover {
-          background: #3d3d48;
-          border-color: #7dd3fc;
-        }
-
-        .btn-acao.ver {
-          color: #7dd3fc;
-        }
-
-        .btn-acao.editar {
-          color: #8b5cf6;
-        }
-
-        .btn-acao.deletar {
-          color: #ef4444;
-        }
-
-        .paginacao {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          gap: 16px;
-          margin-top: 24px;
-        }
-
-        .btn-pagina {
-          background: #23232b;
-          color: #7dd3fc;
-          border: 1px solid #31313d;
-          border-radius: 8px;
-          padding: 8px 16px;
-          font-size: 0.9rem;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          transition: all 0.2s;
-        }
-
-        .btn-pagina:hover:not(:disabled) {
-          background: #2d2d38;
-          border-color: #7dd3fc;
-        }
-
-        .btn-pagina:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .info-pagina {
-          color: #bfc7d5;
-          font-size: 0.9rem;
-        }
-
-        /* Modal Styles */
-        .modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background-color: rgba(0, 0, 0, 0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-          padding: 20px;
-        }
-
-        .modal-content {
-          background: #23232b;
-          border-radius: 16px;
-          border: 2px solid #31313d;
-          width: 100%;
-          max-height: 90vh;
-          overflow-y: auto;
-          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4);
-        }
-
-        .modal-criar {
-          max-width: 600px;
-        }
-
-        .modal-contatos {
-          max-width: 500px;
-        }
-
-        .modal-detalhes {
-          max-width: 700px;
-        }
-
-        .modal-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 24px 24px 0 24px;
-          margin-bottom: 24px;
-          border-bottom: 1px solid #31313d;
-          padding-bottom: 16px;
-        }
-
-        .modal-header h3 {
-          color: #7dd3fc;
-          font-size: 1.25rem;
-          font-weight: 600;
-          margin: 0;
-        }
-
-        .btn-fechar-modal {
-          background: none;
-          border: none;
-          color: #71717a;
-          cursor: pointer;
-          padding: 4px;
-          border-radius: 6px;
-          transition: all 0.2s;
-        }
-
-        .btn-fechar-modal:hover {
-          background: #31313d;
-          color: #bfc7d5;
-        }
-
-        .form-grupo {
-          padding: 0 24px;
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-        }
-
-        .form-group {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .form-group label {
-          color: #bfc7d5;
-          font-size: 0.9rem;
-          font-weight: 500;
-        }
-
-        .required-asterisk {
-          color: #ef4444;
-          margin-left: 4px;
-        }
-
-        .form-input, .form-textarea {
-          background: #1e2328;
-          border: 1px solid #31313d;
-          border-radius: 8px;
-          padding: 12px 16px;
-          font-size: 1rem;
-          color: #fff;
-          outline: none;
-          transition: border-color 0.2s;
-          resize: vertical;
-        }
-
-        .form-input:focus, .form-textarea:focus {
-          border-color: #7dd3fc;
-        }
-
-        .form-input::placeholder, .form-textarea::placeholder {
-          color: #71717a;
-        }
-
-        .cores-container {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-
-        .cor-btn {
-          width: 40px;
-          height: 40px;
-          border-radius: 8px;
-          border: 2px solid transparent;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.2s;
-          color: white;
-        }
-
-        .cor-btn:hover {
-          border-color: #fff;
-          transform: scale(1.1);
-        }
-
-        .cor-btn.ativa {
-          border-color: #fff;
-          box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
-        }
-
-        .btn-selecionar-contatos {
-          background: #7c3aed;
-          color: #fff;
-          border: none;
-          border-radius: 8px;
-          padding: 12px 20px;
-          font-size: 1rem;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          transition: background 0.2s;
-        }
-
-        .btn-selecionar-contatos:hover {
-          background: #6d28d9;
-        }
-
-        .contatos-selecionados {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          margin-top: 8px;
-        }
-
-        .contato-tag {
-          background: #31313d;
-          color: #bfc7d5;
-          padding: 4px 8px;
-          border-radius: 12px;
-          font-size: 0.8rem;
-        }
-
-        .modal-actions {
-          padding: 24px;
-          display: flex;
-          gap: 12px;
-          justify-content: flex-end;
-          border-top: 1px solid #31313d;
-          margin-top: 24px;
-        }
-
-        .btn-criar {
-          background: #22c55e;
-          color: #fff;
-          border: none;
-          border-radius: 8px;
-          padding: 12px 20px;
-          font-size: 1rem;
-          font-weight: 600;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          transition: background 0.2s;
-        }
-
-        .btn-criar:hover:not(:disabled) {
-          background: #16a34a;
-        }
-
-        .btn-criar:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .btn-cancelar {
-          background: #6b7280;
-          color: #fff;
-          border: none;
-          border-radius: 8px;
-          padding: 12px 20px;
-          font-size: 1rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: background 0.2s;
-        }
-
-        .btn-cancelar:hover {
-          background: #4b5563;
-        }
-
-        .busca-contatos-container {
-          padding: 0 24px;
-          margin-bottom: 16px;
-        }
-
-        .busca-contatos-wrapper {
-          position: relative;
-        }
-
-        .busca-contatos-icon {
-          position: absolute;
-          left: 12px;
-          top: 50%;
-          transform: translateY(-50%);
-          color: #71717a;
-          z-index: 1;
-        }
-
-        .busca-contatos-input {
-          width: 100%;
-          background: #1e2328;
-          border: 1px solid #31313d;
-          border-radius: 8px;
-          padding: 12px 16px 12px 40px;
-          font-size: 1rem;
-          color: #fff;
-          outline: none;
-          transition: border-color 0.2s;
-        }
-
-        .busca-contatos-input:focus {
-          border-color: #7dd3fc;
-        }
-
-        .busca-contatos-input::placeholder {
-          color: #71717a;
-        }
-
-        .controles-selecao {
-          padding: 0 24px;
-          margin-bottom: 16px;
-        }
-
-        .info-selecao {
-          display: flex;
-          justify-content: space-between;
-          color: #bfc7d5;
-          font-size: 0.9rem;
-        }
-
-        .contatos-lista {
-          max-height: 300px;
-          overflow-y: auto;
-          padding: 0 24px;
-          margin-bottom: 16px;
-        }
-
-        .sem-contatos {
-          text-align: center;
-          color: #71717a;
-          padding: 32px;
-          font-style: italic;
-        }
-
-        .contato-checkbox {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 12px;
-          border-radius: 8px;
-          cursor: pointer;
-          transition: background 0.2s;
-        }
-
-        .contato-checkbox:hover {
-          background: #31313d;
-        }
-
-        .contato-checkbox input[type="checkbox"] {
-          width: 16px;
-          height: 16px;
-          cursor: pointer;
-          accent-color: #7dd3fc;
-        }
-
-        .contato-nome {
-          flex: 1;
-          font-weight: 500;
-          color: #fff;
-        }
-
-        .contato-numero {
-          color: #7dd3fc;
-          font-family: monospace;
-          font-size: 0.9rem;
-        }
-
-        .btn-confirmar {
-          background: #7dd3fc;
-          color: #18181b;
-          border: none;
-          border-radius: 8px;
-          padding: 12px 20px;
-          font-size: 1rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: background 0.2s;
-          width: 100%;
-        }
-
-        .btn-confirmar:hover {
-          background: #38bdf8;
-        }
-
-        .detalhes-content {
-          padding: 0 24px 24px 24px;
-        }
-
-        .grupo-info-detalhes {
-          margin-bottom: 24px;
-        }
-
-        .info-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 12px 0;
-          border-bottom: 1px solid #31313d;
-        }
-
-        .info-item:last-child {
-          border-bottom: none;
-        }
-
-        .info-item strong {
-          color: #7dd3fc;
-          font-weight: 600;
-        }
-
-        .info-item span {
-          color: #bfc7d5;
-        }
-
-        .contatos-grupo h4 {
-          color: #7dd3fc;
-          font-size: 1.1rem;
-          margin-bottom: 16px;
-        }
-
-        .lista-contatos-detalhes {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          max-height: 300px;
-          overflow-y: auto;
-        }
-
-        .contato-item-detalhes {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 8px 12px;
-          background: #1e2328;
-          border-radius: 6px;
-          border: 1px solid #31313d;
-        }
-
-        .contato-nome-detalhes {
-          color: #fff;
-          font-weight: 500;
-        }
-
-        .contato-numero-detalhes {
-          color: #7dd3fc;
-          font-family: monospace;
-          font-size: 0.9rem;
-        }
-
-        @media (max-width: 768px) {
-          .grupos-container {
-            padding: 20px;
-          }
-
-          .header-container {
-            flex-direction: column;
-            gap: 16px;
-            align-items: stretch;
-          }
-
-          .controles-container {
-            flex-direction: column;
-            align-items: stretch;
-            gap: 16px;
-          }
-
-          .busca-container {
-            max-width: none;
-          }
-
-          .grupos-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .modal-content {
-            max-width: 95vw;
-            margin: 10px;
-          }
-
-          .modal-actions {
-            flex-direction: column;
-          }
-        }
-      `}</style>
+      {/* Modal de criar/editar subgrupo */}
+      {modalSubgrupo && (
+        <div className="modal-overlay" style={{ zIndex: 1200 }} onClick={() => { setModalSubgrupo(false); setSubgrupoEmEdicao(null); }}>
+          <div className="modal-content modal-criar" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{subgrupoEmEdicao ? 'Editar Subgrupo' : 'Novo Subgrupo'}</h3>
+              <button onClick={() => { setModalSubgrupo(false); setSubgrupoEmEdicao(null); }} className="btn-fechar-modal">
+                <FiX size={20} />
+              </button>
+            </div>
+            <div className="form-grupo">
+              <div className="form-group">
+                <label>Nome do Subgrupo<span className="required-asterisk">*</span></label>
+                <input
+                  type="text"
+                  value={nomeSubgrupo}
+                  onChange={e => setNomeSubgrupo(e.target.value)}
+                  placeholder="Ex: Belo Horizonte"
+                  className="form-input"
+                />
+              </div>
+              <div className="form-group">
+                <label>Cor do Subgrupo</label>
+                <div className="cores-container">
+                  {cores.map(cor => (
+                    <button
+                      key={cor.valor}
+                      type="button"
+                      className={`cor-btn ${corSubgrupo === cor.valor ? 'ativa' : ''}`}
+                      style={{ backgroundColor: cor.valor }}
+                      onClick={() => setCorSubgrupo(cor.valor)}
+                      title={cor.nome}
+                    >
+                      {corSubgrupo === cor.valor && <FiCheck size={16} />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Contatos do Subgrupo<span className="required-asterisk">*</span></label>
+                <button
+                  type="button"
+                  onClick={() => setModalContatosSubgrupo(true)}
+                  className="btn-selecionar-contatos"
+                >
+                  <FiUsers size={16} />
+                  Selecionar Contatos
+                </button>
+                {contatosSubgrupo.length > 0 && (
+                  <div className="contatos-selecionados">
+                    {contatosSubgrupo.slice(0, 5).map(contatoId => {
+                      const contato = contatos.find(c => c.id === contatoId);
+                      return contato ? (
+                        <span key={contato.id} className="contato-tag">
+                          {contato.nome}
+                        </span>
+                      ) : null;
+                    })}
+                    {contatosSubgrupo.length > 5 && (
+                      <span className="contato-tag">+{contatosSubgrupo.length - 5} mais</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button 
+                onClick={salvarSubgrupoLocal} 
+                className="btn-criar"
+                disabled={!nomeSubgrupo.trim() || contatosSubgrupo.length === 0}
+              >
+                <FiPlus size={16} /> {subgrupoEmEdicao ? 'Salvar Subgrupo' : 'Criar Subgrupo'}
+              </button>
+              <button 
+                onClick={() => { setModalSubgrupo(false); setSubgrupoEmEdicao(null); }} 
+                className="btn-cancelar"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+          {/* Modal de seleção de contatos do subgrupo, sobreposto */}
+          {modalContatosSubgrupo && (
+            <div className="modal-overlay" style={{ zIndex: 1300 }} onClick={() => setModalContatosSubgrupo(false)}>
+              <div className="modal-content modal-contatos" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h3>Selecionar Contatos do Subgrupo</h3>
+                  <button onClick={() => setModalContatosSubgrupo(false)} className="btn-fechar-modal">
+                    <FiX size={20} />
+                  </button>
+                </div>
+                <div className="busca-contatos-container">
+                  <div className="busca-contatos-wrapper">
+                    <FiSearch className="busca-contatos-icon" />
+                    <input
+                      type="text"
+                      placeholder="Buscar por nome ou número..."
+                      value={buscaContatosSubgrupo}
+                      onChange={e => setBuscaContatosSubgrupo(e.target.value)}
+                      className="busca-contatos-input"
+                    />
+                  </div>
+                </div>
+
+                {/* Seleção rápida */}
+                <div className="controles-selecao">
+                  <div className="info-selecao">
+                    <span>{contatosFiltradosSubgrupo.length} contatos disponíveis</span>
+                    <span>{contatosSubgrupo.length} selecionados</span>
+                  </div>
+                  <div className="selecao-rapida">
+                    <button type="button" onClick={marcarTodosContatosSubgrupo} className="btn-selecao-rapida">
+                      Marcar todos
+                    </button>
+                    <button type="button" onClick={desmarcarTodosContatosSubgrupo} className="btn-selecao-rapida">
+                      Desmarcar todos
+                    </button>
+                    <input
+                      type="number"
+                      min={1}
+                      max={contatosFiltradosSubgrupo.length}
+                      value={quantidadeSelecaoRapida > 0 ? quantidadeSelecaoRapida : ''}
+                      onChange={e => setQuantidadeSelecaoRapida(Number(e.target.value))}
+                      placeholder="Qtd"
+                      className="input-qtd-selecao"
+                      style={{ width: 70, marginLeft: 8 }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => selecionarPrimeirosContatosSubgrupo(quantidadeSelecaoRapida)}
+                      disabled={!quantidadeSelecaoRapida || quantidadeSelecaoRapida < 1}
+                      className="btn-selecao-rapida"
+                    >
+                      Selecionar primeiros
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => selecionarUltimosContatosSubgrupo(quantidadeSelecaoRapida)}
+                      disabled={!quantidadeSelecaoRapida || quantidadeSelecaoRapida < 1}
+                      className="btn-selecao-rapida"
+                    >
+                      Selecionar últimos
+                    </button>
+                  </div>
+                </div>
+
+                <div className="contatos-lista">
+                  {contatosFiltradosSubgrupo.length === 0 ? (
+                    <div className="sem-contatos">
+                      {buscaContatosSubgrupo ? `Nenhum contato encontrado para "${buscaContatosSubgrupo}"` : 'Nenhum contato disponível ainda. Adicione no grupo principal.'}
+                    </div>
+                  ) : (
+                    contatosFiltradosSubgrupo.map(contato => (
+                      <label key={contato.id} className="contato-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={contatosSubgrupo.includes(contato.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setContatosSubgrupo([...contatosSubgrupo, contato.id]);
+                            } else {
+                              setContatosSubgrupo(contatosSubgrupo.filter(id => id !== contato.id));
+                            }
+                          }}
+                        />
+                        <span className="contato-nome">{contato.nome}</span>
+                        <span className="contato-numero">{contato.numero}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+                <div className="modal-actions">
+                  <button onClick={() => setModalContatosSubgrupo(false)} className="btn-confirmar">
+                    Confirmar Seleção ({contatosSubgrupo.length})
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <style jsx>{grupoStyle}</style>
     </div>
   );
 };
