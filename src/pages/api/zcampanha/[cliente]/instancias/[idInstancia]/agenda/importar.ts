@@ -60,7 +60,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     });
 
-    const [, files] = await form.parse(req);
+    // Ajuste: obtenha fields e files
+    const [fields, files] = await form.parse(req);
     const arquivo = Array.isArray(files.arquivo) ? files.arquivo[0] : files.arquivo;
 
     if (!arquivo) {
@@ -112,13 +113,52 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Limpar arquivo temporário
     fs.unlinkSync(arquivo.filepath);
 
+    // Se solicitado, criar grupo
+    const criarGrupo =
+      Array.isArray(fields.criarGrupo)
+        ? fields.criarGrupo[0] === 'true'
+        : fields.criarGrupo === 'true';
+    const nomeGrupo =
+      Array.isArray(fields.nomeGrupo)
+        ? fields.nomeGrupo[0]
+        : typeof fields.nomeGrupo === 'string'
+          ? fields.nomeGrupo
+          : '';
+    let grupoCriado: null | {
+      id: string;
+      nome: string;
+      descricao: string;
+      contatos: string[];
+      cor: string;
+      dataCriacao: number;
+      dataAtualizacao: number;
+      totalContatos: number;
+    } = null;
+
+    if (criarGrupo && nomeGrupo && contatosInseridos.length > 0) {
+      const agora = Date.now();
+      const grupoData = {
+        nome: nomeGrupo,
+        descricao: '',
+        contatos: contatosInseridos.map(c => c.id),
+        cor: '#3b82f6',
+        dataCriacao: agora,
+        dataAtualizacao: agora,
+        totalContatos: contatosInseridos.length
+      };
+      const gruposRef = dbAdmin.collection(`/empresas/${cliente}/produtos/zcampanha/instancias/${idInstancia}/grupos`);
+      const grupoDoc = await gruposRef.add(grupoData);
+      grupoCriado = { id: grupoDoc.id, ...grupoData };
+    }
+
     return res.status(200).json({
       success: true,
       totalLinhas: contatos.length,
       contatosInseridos: contatosInseridos.length,
       errosEncontrados: errosValidacao.length,
       contatos: contatosInseridos,
-      erros: errosValidacao
+      erros: errosValidacao,
+      grupoCriado // pode ser null ou objeto
     });
 
   } catch (error) {

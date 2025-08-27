@@ -15,6 +15,16 @@ type ResultadoImportacao = {
   errosEncontrados: number;
   contatos: Array<{ id: string; nome: string; numero: string; linha: number }>;
   erros: Array<{ linha: number; erros: string[] }>;
+  grupoCriado?: null | {
+    id: string;
+    nome: string;
+    descricao: string;
+    contatos: string[];
+    cor: string;
+    dataCriacao: number;
+    dataAtualizacao: number;
+    totalContatos: number;
+  };
 };
 
 const ImportarContatos: React.FC<ImportarContatosProps> = ({
@@ -27,6 +37,8 @@ const ImportarContatos: React.FC<ImportarContatosProps> = ({
   const [carregando, setCarregando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoImportacao | null>(null);
   const [erro, setErro] = useState('');
+  const [criarGrupo, setCriarGrupo] = useState(false);
+  const [nomeGrupo, setNomeGrupo] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const formatosAceitos = '.xlsx,.xls,.csv,.xlsm';
@@ -63,6 +75,10 @@ const ImportarContatos: React.FC<ImportarContatosProps> = ({
     try {
       const formData = new FormData();
       formData.append('arquivo', arquivo);
+      if (criarGrupo && nomeGrupo.trim()) {
+        formData.append('criarGrupo', 'true');
+        formData.append('nomeGrupo', nomeGrupo.trim());
+      }
 
       const response = await fetch(
         `/api/zcampanha/${cliente}/instancias/${idInstancia}/agenda/importar`,
@@ -184,6 +200,29 @@ const ImportarContatos: React.FC<ImportarContatosProps> = ({
                   </button>
                 </div>
               )}
+
+              {/* Opção de criar grupo */}
+              <div className="grupo-container">
+                <label className="grupo-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={criarGrupo}
+                    onChange={e => setCriarGrupo(e.target.checked)}
+                  />
+                  Criar um novo grupo com os contatos importados
+                </label>
+                {criarGrupo && (
+                  <input
+                    type="text"
+                    className="grupo-nome-input"
+                    placeholder="Nome do grupo"
+                    value={nomeGrupo}
+                    onChange={e => setNomeGrupo(e.target.value)}
+                    maxLength={40}
+                    style={{ marginTop: 8, width: '100%' }}
+                  />
+                )}
+              </div>
 
               {/* Erro */}
               {erro && (
@@ -500,6 +539,34 @@ const ImportarContatos: React.FC<ImportarContatosProps> = ({
           color: #ef4444;
           font-weight: 500;
           margin-bottom: 20px;
+        }
+
+        .grupo-container {
+          margin-bottom: 20px;
+        }
+
+        .grupo-checkbox {
+          color: #bfc7d5;
+          font-size: 1rem;
+          font-weight: 500;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .grupo-nome-input {
+          background: #1e2328;
+          border: 1px solid #31313d;
+          border-radius: 8px;
+          padding: 10px;
+          color: #fff;
+          font-size: 1rem;
+          margin-top: 8px;
+        }
+
+        .grupo-nome-input:focus {
+          border-color: #7dd3fc;
+          outline: none;
         }
 
         .resultado-container {
