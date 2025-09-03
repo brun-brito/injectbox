@@ -12,6 +12,7 @@ import {
 import formidable from 'formidable';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 
 // Tipos para as campanhas
 export type StatusCampanha = 'rascunho' | 'agendada' | 'enviando' | 'pausada' | 'concluida' | 'cancelada';
@@ -103,8 +104,8 @@ const processarUpload = async (req: NextApiRequest): Promise<{
   files: formidable.Files;
 }> => {
   return new Promise((resolve, reject) => {
-    // Criar diretório temporário se não existir
-    const uploadDir = path.join(process.cwd(), 'tmp', 'uploads');
+    // Usar diretório temporário do sistema (compatível com Vercel)
+    const uploadDir = path.join(os.tmpdir(), 'uploads');
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
