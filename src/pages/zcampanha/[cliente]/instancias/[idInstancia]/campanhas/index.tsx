@@ -55,7 +55,8 @@ const CampanhasPage = () => {
   const [descricao, setDescricao] = useState('');
   const [tipoMensagem, setTipoMensagem] = useState<Type.TipoMensagem>('texto');
   const [textoMensagem, setTextoMensagem] = useState('');
-  const [imagemBase64, setImagemBase64] = useState('');
+  const [imagemUrl, setImagemUrl] = useState(''); // Alterado de imagemBase64
+  const [imagemFile, setImagemFile] = useState<File | null>(null); // Novo estado para arquivo
   const [legendaImagem, setLegendaImagem] = useState('');
   const [botoesAcao, setBotoesAcao] = useState<Type.ButtonAction[]>([]);
   const [contatosSelecionados, setContatosSelecionados] = useState<Type.ContatoSelecionado[]>([]);
@@ -104,13 +105,13 @@ const CampanhasPage = () => {
       case 'texto':
         return textoMensagem.trim() !== '';
       case 'imagem':
-        return imagemBase64.trim() !== '';
+        return imagemUrl.trim() !== '' || imagemFile !== null;
       case 'botoes':
         return textoMensagem.trim() !== '' && botoesAcao.length > 0 && botoesAcao.every(b => b.label.trim() !== '');
       default:
         return false;
     }
-  }, [nome, contatosSelecionados, tipoMensagem, textoMensagem, imagemBase64, botoesAcao]);
+  }, [nome, contatosSelecionados, tipoMensagem, textoMensagem, imagemUrl, imagemFile, botoesAcao]);
 
   // Lista de variáveis válidas
   const variaveisValidas = ['$nome', '$primeiroNome'];
@@ -214,49 +215,6 @@ const CampanhasPage = () => {
     }
   };
 
-  // Adicionar estado para subgrupos
-  const [subgrupos, setSubgrupos] = useState<Array<{
-    id: string;
-    nome: string;
-    cor: string;
-    totalContatos: number;
-    contatos: string[];
-    grupoId: string;
-  }>>([]);
-  const [subgruposSelecionados, setSubgruposSelecionados] = useState<string[]>([]);
-  const [modalSubgrupos, setModalSubgrupos] = useState(false);
-
-  // Buscar subgrupos de todos os grupos
-  const fetchTodosSubgrupos = async () => {
-    if (!grupos.length) return;
-    const allSubgrupos: Array<{
-      id: string;
-      nome: string;
-      cor: string;
-      totalContatos: number;
-      contatos: string[];
-      grupoId: string;
-    }> = [];
-    for (const grupo of grupos) {
-      const response = await fetch(`/api/zcampanha/${cliente}/instancias/${idInstancia}/grupos/${grupo.id}/subgrupos`);
-      const data = await response.json();
-      (data.subgrupos || []).forEach((sub: any) => {
-        allSubgrupos.push({
-          ...sub,
-          grupoId: grupo.id
-        });
-      });
-    }
-    setSubgrupos(allSubgrupos);
-  };
-
-  useEffect(() => {
-    if (grupos.length > 0) {
-      fetchTodosSubgrupos();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grupos]);
-
   useEffect(() => {
     if (cliente && idInstancia) {
       fetchCampanhas();
@@ -280,29 +238,23 @@ const CampanhasPage = () => {
     }
   }, [cliente, idInstancia]);
 
-  // Função para aplicar seleção de grupos e subgrupos
-  const aplicarSelecaoGruposESubgrupos = () => {
+  // Função para aplicar seleção de grupos
+  const aplicarSelecaoGrupos = () => {
     const contatosDeGrupos = gruposSelecionados.flatMap(gId => {
       const grupo = grupos.find(g => g.id === gId);
       return grupo ? grupo.contatos : [];
     });
-    const contatosDeSubgrupos = subgruposSelecionados.flatMap(subId => {
-      const sub = subgrupos.find(s => s.id === subId);
-      return sub ? sub.contatos : [];
-    });
 
-    // IDs de todos os contatos individuais, de grupos e subgrupos
+    // IDs de todos os contatos individuais e de grupos
     const idsUnicos = new Set([
       ...contatosSelecionados.map(c => c.id),
-      ...contatosDeGrupos,
-      ...contatosDeSubgrupos
+      ...contatosDeGrupos
     ]);
 
     const todosContatos = contatos.filter(contato => idsUnicos.has(contato.id));
 
     setContatosSelecionados(todosContatos);
     setModalGrupos(false);
-    setModalSubgrupos(false);
   };
 
   useEffect(() => {
@@ -346,13 +298,16 @@ const CampanhasPage = () => {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      setImagemBase64(result);
-      setErro('');
-    };
-    reader.readAsDataURL(file);
+    if (file.size > 10 * 1024 * 1024) { // 10MB
+      setErro('Arquivo muito grande. Máximo 10MB.');
+      return;
+    }
+
+    // Criar URL de preview
+    const previewUrl = URL.createObjectURL(file);
+    setImagemUrl(previewUrl);
+    setImagemFile(file);
+    setErro('');
   };
 
   // Função para adicionar botão
@@ -395,19 +350,21 @@ const CampanhasPage = () => {
       case 'texto':
         if (!textoMensagem.trim()) {
           setErro('Digite a mensagem de texto');
+          setLoadingCampanha(false);
           return;
         }
         conteudo = { tipo: 'texto', texto: normalizarQuebrasLinha(textoMensagem) };
         break;
         
       case 'imagem':
-        if (!imagemBase64) {
+        if (!imagemUrl && !imagemFile) {
           setErro('Selecione uma imagem');
+          setLoadingCampanha(false);
           return;
         }
         conteudo = { 
           tipo: 'imagem', 
-          imagem: imagemBase64
+          imagem: imagemUrl // Será substituída pela URL do servidor se houver arquivo
         };
         // Adicionar legenda apenas se não estiver vazia
         if (legendaImagem.trim()) {
@@ -418,43 +375,54 @@ const CampanhasPage = () => {
       case 'botoes':
         if (!textoMensagem.trim()) {
           setErro('Digite a mensagem para os botões');
+          setLoadingCampanha(false);
           return;
         }
         if (botoesAcao.length === 0) {
           setErro('Adicione pelo menos um botão');
+          setLoadingCampanha(false);
           return;
         }
         // Validar botões
         for (const botao of botoesAcao) {
           if (!botao.label.trim()) {
             setErro('Todos os botões devem ter um texto');
+            setLoadingCampanha(false);
             return;
           }
         }
         conteudo = { 
           tipo: 'botoes', 
           texto: normalizarQuebrasLinha(textoMensagem),
-          imagem: imagemBase64 || '',
+          imagem: imagemUrl || '', // Será substituída pela URL do servidor se houver arquivo
           botoes: botoesAcao
         };
         break;
         
       default:
         setErro('Tipo de mensagem inválido');
+        setLoadingCampanha(false);
         return;
     }
 
-    // Construir objeto da campanha
-    const dadosCampanha: Partial<Type.Campanha> = {
-      id: campanhaEmEdicao?.id,
-      nome,
-      conteudo,
-      contatos: contatosSelecionados
-    };
-
-    // Adicionar descrição apenas se não estiver vazia
+    // Preparar FormData
+    const formData = new FormData();
+    formData.append('nome', nome);
+    formData.append('conteudo', JSON.stringify(conteudo));
+    formData.append('contatos', JSON.stringify(contatosSelecionados));
+    
     if (descricao.trim()) {
-      dadosCampanha.descricao = descricao;
+      formData.append('descricao', descricao);
+    }
+
+    // Adicionar arquivo de imagem se existir
+    if (imagemFile) {
+      formData.append('imagem', imagemFile);
+    }
+
+    // Se for edição, adicionar ID
+    if (campanhaEmEdicao) {
+      formData.append('id', campanhaEmEdicao.id || '');
     }
 
     const isEditing = !!campanhaEmEdicao;
@@ -464,8 +432,7 @@ const CampanhasPage = () => {
     try {
       const response = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(dadosCampanha)
+        body: formData // Não definir Content-Type, deixar o browser definir
       });
 
       if (response.ok) {
@@ -489,11 +456,18 @@ const CampanhasPage = () => {
     setDescricao('');
     setTipoMensagem('texto');
     setTextoMensagem('');
-    setImagemBase64('');
+    
+    // Limpar URL de preview se for object URL
+    if (imagemUrl && imagemUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(imagemUrl);
+    }
+    setImagemUrl('');
+    setImagemFile(null);
+    
     setLegendaImagem('');
     setBotoesAcao([]);
     setContatosSelecionados([]);
-    setGruposSelecionados([]); // CORREÇÃO: Limpar grupos selecionados
+    setGruposSelecionados([]);
     setCampanhaEmEdicao(null); // Limpa o estado de edição
     setErro('');
   };
@@ -536,7 +510,8 @@ const CampanhasPage = () => {
     setDescricao(campanha.descricao || '');
     setTipoMensagem(campanha.conteudo.tipo);
     setTextoMensagem(campanha.conteudo.texto || '');
-    setImagemBase64(campanha.conteudo.imagem || '');
+    setImagemUrl(campanha.conteudo.imagem || '');
+    setImagemFile(null); // Não temos arquivo na edição, apenas URL
     setLegendaImagem(campanha.conteudo.legenda || '');
     setBotoesAcao(campanha.conteudo.botoes || []);
     fetchContatosDaCampanha(campanha.id || '');
@@ -1141,16 +1116,11 @@ const CampanhasPage = () => {
       const grupo = grupos.find(g => g.id === gId);
       return grupo ? grupo.contatos : [];
     });
-    const contatosDeSubgrupos = subgruposSelecionados.flatMap(subId => {
-      const sub = subgrupos.find(s => s.id === subId);
-      return sub ? sub.contatos : [];
-    });
 
-    // IDs de todos os contatos individuais, de grupos e subgrupos
+    // IDs de todos os contatos individuais e de grupos
     const idsUnicos = new Set([
       ...contatosSelecionados.map(c => c.id),
-      ...contatosDeGrupos,
-      ...contatosDeSubgrupos
+      ...contatosDeGrupos
     ]);
 
     const totalGeral = idsUnicos.size;
@@ -1273,64 +1243,6 @@ const CampanhasPage = () => {
               {gruposSelecionados.length > 0 ? 'Gerenciar Grupos' : 'Selecionar Grupos'}
             </button>
           </div>
-
-          {/* Card de Subgrupos */}
-          <div className="destinatario-card">
-            <div className="card-header">
-              <div className="card-icon subgrupos">
-                <Icons.FiLayers size={20} />
-              </div>
-              <div className="card-info">
-                <h4>Subgrupos</h4>
-                <span className="card-count">{subgruposSelecionados.length} subgrupos • {contatosDeSubgrupos.length} contatos</span>
-              </div>
-            </div>
-            <div className="card-content">
-              {subgruposSelecionados.length > 0 ? (
-                <div className="preview-subgrupos">
-                  {subgruposSelecionados.slice(0, 2).map(subId => {
-                    const sub = subgrupos.find(s => s.id === subId);
-                    return sub ? (
-                      <div key={sub.id} className="subgrupo-preview">
-                        <div 
-                          className="subgrupo-badge" 
-                          style={{ backgroundColor: sub.cor }}
-                        >
-                          <Icons.FiLayers size={12} />
-                        </div>
-                        <div className="subgrupo-info-preview">
-                          <span className="subgrupo-nome-preview">{sub.nome} </span>
-                          <span className="subgrupo-total-preview">({sub.totalContatos} contatos)</span>
-                        </div>
-                      </div>
-                    ) : null;
-                  })}
-                  {subgruposSelecionados.length > 2 && (
-                    <div className="subgrupo-preview mais">
-                      <div className="subgrupo-badge mais-badge">
-                        +{subgruposSelecionados.length - 2}
-                      </div>
-                      <div className="subgrupo-info-preview">
-                        <span className="subgrupo-nome-preview">mais subgrupos</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <span>Nenhum subgrupo selecionado</span>
-                </div>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => setModalSubgrupos(true)}
-              className="card-action-btn subgrupos"
-            >
-              <Icons.FiLayers size={16} />
-              {subgruposSelecionados.length > 0 ? 'Gerenciar Subgrupos' : 'Selecionar Subgrupos'}
-            </button>
-          </div>
         </div>
 
         {/* Resumo Total */}
@@ -1347,8 +1259,6 @@ const CampanhasPage = () => {
                 {contatosSelecionados.length > 0 && `${contatosSelecionados.length} contatos individuais`}
                 {contatosSelecionados.length > 0 && gruposSelecionados.length > 0 && ' + '}
                 {gruposSelecionados.length > 0 && `${gruposSelecionados.length} grupos (${contatosDeGrupos.length} contatos)`}
-                {(contatosSelecionados.length > 0 || gruposSelecionados.length > 0) && subgruposSelecionados.length > 0 && ' + '}
-                {subgruposSelecionados.length > 0 && `${subgruposSelecionados.length} subgrupos (${contatosDeSubgrupos.length} contatos)`}
               </span>
             </div>
           </div>
@@ -1494,8 +1404,10 @@ const CampanhasPage = () => {
         setTextoMensagem={setTextoMensagem}
         legendaImagem={legendaImagem}
         setLegendaImagem={setLegendaImagem}
-        imagemBase64={imagemBase64}
-        setImagemBase64={setImagemBase64}
+        imagemUrl={imagemUrl} // Alterado de imagemBase64
+        setImagemUrl={setImagemUrl} // Alterado de setImagemBase64
+        imagemFile={imagemFile} // Novo prop
+        setImagemFile={setImagemFile} // Novo prop
         botoesAcao={botoesAcao}
         setBotoesAcao={setBotoesAcao}
         contatosSelecionados={contatosSelecionados}
@@ -1537,7 +1449,7 @@ const CampanhasPage = () => {
         grupos={grupos}
         gruposSelecionados={gruposSelecionados}
         setGruposSelecionados={setGruposSelecionados}
-        aplicarSelecaoGrupos={aplicarSelecaoGruposESubgrupos}
+        aplicarSelecaoGrupos={aplicarSelecaoGrupos}
       />
 
       {/* Modal de detalhes da campanha */}
@@ -1612,16 +1524,6 @@ const CampanhasPage = () => {
                               alt="Imagem da campanha"
                               className="preview-img-detalhes"
                             />
-                            {/* {modalDetalhes.conteudo.texto && (
-                              <div className="texto-botoes">
-                                <strong>Legenda:</strong>
-                                <div
-                                  className="texto-principal"
-                                  dangerouslySetInnerHTML={{ __html: renderizarTextoComVariaveis(modalDetalhes.conteudo.texto || '') }}
-                                  style={{ whiteSpace: 'pre-wrap' }}
-                                />
-                              </div>
-                            )} */}
                           </div>
                         )}
                         
@@ -1812,61 +1714,6 @@ const CampanhasPage = () => {
 
       {/* Modal de progresso em tempo real */}
       <ProgressoEnvio />
-
-      {/* Adicione modal de seleção de subgrupos (simples) */}
-      {modalSubgrupos && (
-        <div className="modal-overlay" onClick={() => setModalSubgrupos(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Selecionar Subgrupos</h3>
-              <button onClick={() => setModalSubgrupos(false)} className="btn-fechar-modal">
-                <Icons.FiX size={20} />
-              </button>
-            </div>
-            <div className="modal-body">
-              {subgrupos.length === 0 ? (
-                <div className="empty-state">Nenhum subgrupo disponível</div>
-              ) : (
-                <div className="subgrupos-lista">
-                  {subgrupos.map(sub => (
-                    <label key={sub.id} className="subgrupo-checkbox" style={{ backgroundColor: sub.cor, borderRadius: 8, padding: 8, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input
-                        type="checkbox"
-                        checked={subgruposSelecionados.includes(sub.id)}
-                        onChange={e => {
-                          if (e.target.checked) {
-                            setSubgruposSelecionados([...subgruposSelecionados, sub.id]);
-                          } else {
-                            setSubgruposSelecionados(subgruposSelecionados.filter(id => id !== sub.id));
-                          }
-                        }}
-                        style={{ marginRight: 8 }}
-                      />
-                      <span style={{ fontWeight: 600 }}>{sub.nome}</span>
-                      <span style={{ fontSize: 12, color: '#fff', background: '#23232b', borderRadius: 4, padding: '2px 6px' }}>{sub.totalContatos} contatos</span>
-                      <span style={{ fontSize: 12, color: '#fff', background: '#31313d', borderRadius: 4, padding: '2px 6px' }}>Grupo: {grupos.find(g => g.id === sub.grupoId)?.nome || '-'}</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="modal-actions">
-              <button
-                onClick={aplicarSelecaoGruposESubgrupos}
-                className="btn-confirmar"
-              >
-                Confirmar Seleção
-              </button>
-              <button
-                onClick={() => setModalSubgrupos(false)}
-                className="btn-cancelar"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <style jsx>{campanhaStyle}</style>
     </div>

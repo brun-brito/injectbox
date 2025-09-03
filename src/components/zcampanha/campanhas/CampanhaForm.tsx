@@ -16,7 +16,7 @@ interface CampanhaFormData {
   tipoMensagem: Type.TipoMensagem;
   textoMensagem: string;
   legendaImagem?: string;
-  imagemBase64?: string;
+  imagemUrl?: string; // Alterado de imagemBase64 para imagemUrl
   botoesAcao?: Type.ButtonAction[];
   contatosSelecionados: Type.ContatoSelecionado[];
 }
@@ -35,8 +35,10 @@ type CampanhaFormProps = {
   setTextoMensagem: (texto: string) => void;
   legendaImagem: string;
   setLegendaImagem: (legenda: string) => void;
-  imagemBase64: string;
-  setImagemBase64: (imagem: string) => void;
+  imagemUrl: string; // Alterado de imagemBase64 para imagemUrl
+  setImagemUrl: (imagem: string) => void; // Alterado de setImagemBase64 para setImagemUrl
+  imagemFile: File | null; // Novo estado para o arquivo
+  setImagemFile: (file: File | null) => void; // Novo setter para o arquivo
   botoesAcao: Type.ButtonAction[];
   setBotoesAcao: (botoes: Type.ButtonAction[]) => void;
   contatosSelecionados: Type.ContatoSelecionado[];
@@ -117,8 +119,8 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
   setTextoMensagem,
   legendaImagem,
   setLegendaImagem,
-  imagemBase64,
-  setImagemBase64,
+  imagemUrl, // Alterado de imagemBase64 para imagemUrl
+  setImagemUrl, // Alterado de setImagemBase64 para setImagemUrl
   botoesAcao,
   erro,
   isFormValid,
@@ -276,7 +278,7 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
             <>
               <div className="form-group">
                 <label>Imagem<span className="required-asterisk">*</span></label>
-                {!imagemBase64 ? (
+                {!imagemUrl ? (
                   <div className="image-selector">
                     <label htmlFor="image-upload" className="image-upload-btn">
                       <Icons.FiImage size={32} className="upload-icon" />
@@ -296,10 +298,12 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
                 ) : (
                   <div className="image-preview-container">
                     <div className="image-preview">
-                      <Image src={imagemBase64} alt="Preview" width={200} height={150} />
+                      <Image src={imagemUrl} alt="Preview" width={200} height={150} />
                       <button
                         type="button"
-                        onClick={() => setImagemBase64('')}
+                        onClick={() => {
+                          setImagemUrl('');
+                        }}
                         className="remove-image-btn"
                         title="Remover imagem"
                       >
@@ -495,7 +499,7 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
 
               <div className="form-group">
                 <label>Imagem (opcional)</label>
-                {!imagemBase64 ? (
+                {!imagemUrl ? (
                   <div className="image-selector">
                     <label htmlFor="image-upload" className="image-upload-btn">
                       <Icons.FiImage size={32} className="upload-icon" />
@@ -515,10 +519,10 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
                 ) : (
                   <div className="image-preview-container">
                     <div className="image-preview">
-                      <Image src={imagemBase64} alt="Media preview" width={100} height={100} />
+                      <Image src={imagemUrl} alt="Media preview" width={100} height={100} />
                       <button
                         type="button"
-                        onClick={() => setImagemBase64('')}
+                        onClick={() => setImagemUrl('')}
                         className="remove-image-btn"
                         title="Remover imagem"
                       >
@@ -548,7 +552,7 @@ const CampanhaForm: React.FC<CampanhaFormProps> = ({
               <div className="form-group">
                 <div className="exemplo-imagem-container">
                   <div className="exemplo-imagem-header">
-                    <span>Exemplo de como aparece {imagemBase64 ? 'com imagem ' : ''}no WhatsApp:</span>
+                    <span>Exemplo de como aparece {imagemUrl ? 'com imagem ' : ''}no WhatsApp:</span>
                   </div>
                   <div className="exemplo-imagem-wrapper">
                     <Image 

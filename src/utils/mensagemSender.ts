@@ -93,7 +93,7 @@ export class MensagemSender {
 
     const payload: Record<string, unknown> = {
       phone: contato.numeroContato,
-      image: conteudo.imagem,
+      image: conteudo.imagem, // Agora será uma URL ao invés de base64
       viewOnce: false
     };
 
@@ -107,9 +107,8 @@ export class MensagemSender {
       console.log(JSON.stringify(legendaProcessada));
     }
 
-    // Log do payload (omitindo imagem base64)
-    const payloadLog = { ...payload, image: '[base64 omitted]' };
-    console.log('[MensagemSender] Payload send-image:', payloadLog);
+    // Log do payload (URL da imagem)
+    console.log('[MensagemSender] Payload send-image:', payload);
 
     return await this.fazerRequisicao('send-image', payload);
   }
@@ -147,7 +146,7 @@ export class MensagemSender {
     };
 
     if (conteudo.imagem) {
-      buttonList.image = conteudo.imagem;
+      buttonList.image = conteudo.imagem; // Agora será uma URL ao invés de base64
     }
 
     const payload: Record<string, unknown> = {
@@ -155,12 +154,6 @@ export class MensagemSender {
       message: mensagemProcessada,
       buttonList: buttonList
     };
-
-    // Log detalhado do payload e do campo message (com \n visíveis)
-    // let payloadLog = { ...payload, buttonList: { ...buttonList, image: conteudo.imagem ? '[base64 omitted]' : undefined } };
-    // console.log('[MensagemSender] Payload send-button-list:', payloadLog);
-    // console.log('[MensagemSender] Conteúdo do campo message (com \\n visíveis):');
-    // console.log(JSON.stringify(mensagemProcessada));
 
     return await this.fazerRequisicao('send-button-list', payload);
   }

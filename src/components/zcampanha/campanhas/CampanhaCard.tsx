@@ -80,6 +80,9 @@ export const CampanhaCard: React.FC<CampanhaCardProps> = ({
             Tempo restante estimado: {campanha.tempoEstimado || campanha.progresso?.tempoEstimado || '-'}
           </small>
         )}
+        {campanha.status === 'concluida' && (
+          <small> Concluída em: {campanha.dataConclusao ? new Date(campanha.dataConclusao).toLocaleString('pt-BR') : '-'}</small>
+        )}
       </div>
       
       <div className="campanha-actions">

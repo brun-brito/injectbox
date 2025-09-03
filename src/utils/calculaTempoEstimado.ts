@@ -1,5 +1,5 @@
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
-const DELAY_ENTRE_ENVIOS = IS_PRODUCTION ? 1000 : 10000;
+const DELAY_ENTRE_ENVIOS = IS_PRODUCTION ? 10000 : 10000;
 const TEMPO_RESPOSTA_API = 2500; // Tempo médio de resposta em milissegundos (800ms a 2000ms)
 
 export function calcularTempoEstimadoTotal(contatosRestantes: number): number {
