@@ -10,6 +10,15 @@ interface Grupo {
   contatos: string[];
 }
 
+interface Subgrupo {
+  id: string;
+  nome: string;
+  cor: string;
+  totalContatos: number;
+  contatos: string[];
+  grupoId: string;
+}
+
 interface ModaisSelecaoProps {
   // Modal de contatos
   modalContatos: boolean;
@@ -27,6 +36,13 @@ interface ModaisSelecaoProps {
   gruposSelecionados: string[];
   setGruposSelecionados: (grupos: string[]) => void;
   aplicarSelecaoGrupos: () => void;
+
+  // Modal de subgrupos
+  modalSubgrupos: boolean;
+  setModalSubgrupos: (aberto: boolean) => void;
+  subgrupos: Subgrupo[];
+  subgruposSelecionados: string[];
+  setSubgruposSelecionados: (subgrupos: string[]) => void;
 }
 
 const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
@@ -43,9 +59,17 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
   gruposSelecionados,
   setGruposSelecionados,
   aplicarSelecaoGrupos,
+  modalSubgrupos,
+  setModalSubgrupos,
+  subgrupos,
+  subgruposSelecionados,
+  setSubgruposSelecionados,
 }) => {
   // Estado local para busca de grupos
   const [buscaGrupos, setBuscaGrupos] = useState('');
+
+  // Estado local para busca de subgrupos
+  const [buscaSubgrupos, setBuscaSubgrupos] = useState('');
 
   // Filtrar e ordenar contatos no modal
   const contatosFiltradosOrdenados = useMemo(() => {
@@ -84,6 +108,20 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
     );
   }, [grupos, buscaGrupos]);
 
+  // Filtrar e ordenar subgrupos no modal
+  const subgruposFiltradosOrdenados = useMemo(() => {
+    let resultado = [...subgrupos];
+    if (buscaSubgrupos.trim()) {
+      const termoBusca = buscaSubgrupos.toLowerCase().trim();
+      resultado = resultado.filter(sub =>
+        sub.nome.toLowerCase().includes(termoBusca)
+      );
+    }
+    return resultado.sort((a, b) =>
+      a.nome.toLowerCase().localeCompare(b.nome.toLowerCase())
+    );
+  }, [subgrupos, buscaSubgrupos]);
+
   // Verificar se todos os contatos filtrados estão selecionados
   const todosSelecionados = useMemo(() => {
     if (contatosFiltradosOrdenados.length === 0) return false;
@@ -113,6 +151,17 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
       gruposSelecionados.includes(grupo.id)
     );
   }, [gruposFiltradosOrdenados, gruposSelecionados]);
+
+  // Verificar se todos os subgrupos filtrados estão selecionados
+  const todosSubgruposSelecionados = useMemo(() => {
+    if (subgruposFiltradosOrdenados.length === 0) return false;
+    return subgruposFiltradosOrdenados.every(sub => subgruposSelecionados.includes(sub.id));
+  }, [subgruposFiltradosOrdenados, subgruposSelecionados]);
+
+  // Verificar se alguns subgrupos filtrados estão selecionados
+  const algunsSubgruposSelecionados = useMemo(() => {
+    return subgruposFiltradosOrdenados.some(sub => subgruposSelecionados.includes(sub.id));
+  }, [subgruposFiltradosOrdenados, subgruposSelecionados]);
 
   // Função para marcar/desmarcar todos os contatos filtrados
   const toggleTodosContatos = () => {
@@ -148,6 +197,19 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
     }
   };
 
+  // Função para marcar/desmarcar todos os subgrupos filtrados
+  const toggleTodosSubgrupos = () => {
+    if (todosSubgruposSelecionados) {
+      const idsParaRemover = new Set(subgruposFiltradosOrdenados.map(s => s.id));
+      setSubgruposSelecionados(subgruposSelecionados.filter(subId => !idsParaRemover.has(subId)));
+    } else {
+      const novosSubgrupos = subgruposFiltradosOrdenados
+        .filter(sub => !subgruposSelecionados.includes(sub.id))
+        .map(sub => sub.id);
+      setSubgruposSelecionados([...subgruposSelecionados, ...novosSubgrupos]);
+    }
+  };
+
   // Função para limpar busca quando modal for fechado
   const fecharModalContatos = () => {
     setModalContatos(false);
@@ -158,6 +220,12 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
   const fecharModalGrupos = () => {
     setModalGrupos(false);
     setBuscaGrupos('');
+  };
+
+  // Função para limpar busca quando modal de subgrupos for fechado
+  const fecharModalSubgrupos = () => {
+    setModalSubgrupos(false);
+    setBuscaSubgrupos('');
   };
 
   return (
@@ -414,6 +482,132 @@ const ModaisSelecao: React.FC<ModaisSelecaoProps> = ({
                   <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                 </svg>
                 Confirmar Seleção ({gruposSelecionados.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de seleção de subgrupos */}
+      {modalSubgrupos && (
+        <div className="modal-overlay" onClick={fecharModalSubgrupos}>
+          <div className="modal-content modal-subgrupos" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Selecionar Subgrupos</h3>
+              <button onClick={fecharModalSubgrupos} className="btn-fechar-modal">
+                <Icons.FiX size={20} />
+              </button>
+            </div>
+            <div className="busca-contatos-container">
+              <div className="busca-contatos-wrapper">
+                <Icons.FiSearch className="busca-contatos-icon" />
+                <input
+                  type="text"
+                  placeholder="Buscar subgrupos por nome..."
+                  value={buscaSubgrupos}
+                  onChange={e => setBuscaSubgrupos(e.target.value)}
+                  className="busca-contatos-input"
+                />
+                {buscaSubgrupos && (
+                  <button 
+                    onClick={() => setBuscaSubgrupos('')}
+                    className="limpar-busca-btn"
+                    title="Limpar busca"
+                  >
+                    <Icons.FiX size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="controles-selecao">
+              <div className="info-selecao">
+                <span className="total-contatos">
+                  {subgruposFiltradosOrdenados.length} subgrupos
+                  {buscaSubgrupos && ` encontrados`}
+                </span>
+                <span className="contatos-selecionados-info">
+                  {subgruposSelecionados.length} selecionados
+                </span>
+              </div>
+              {subgruposFiltradosOrdenados.length > 0 && (
+                <div className="acoes-selecao">
+                  <label className="checkbox-todos">
+                    <input
+                      type="checkbox"
+                      checked={todosSubgruposSelecionados}
+                      ref={input => {
+                        if (input) input.indeterminate = !todosSubgruposSelecionados && algunsSubgruposSelecionados;
+                      }}
+                      onChange={toggleTodosSubgrupos}
+                    />
+                    <span className="checkbox-label">
+                      {todosSubgruposSelecionados ? 'Desmarcar todos' : 'Marcar todos'}
+                    </span>
+                  </label>
+                </div>
+              )}
+            </div>
+            <div className="subgrupos-lista">
+              {subgruposFiltradosOrdenados.length === 0 ? (
+                <div className="sem-subgrupos">
+                  {buscaSubgrupos ? (
+                    <>
+                      Nenhum subgrupo encontrado para &quot;{buscaSubgrupos}&quot;
+                      <button 
+                        onClick={() => setBuscaSubgrupos('')}
+                        className="btn-limpar-busca-sem-resultados"
+                      >
+                        Limpar busca
+                      </button>
+                    </>
+                  ) : (
+                    'Nenhum subgrupo disponível'
+                  )}
+                </div>
+              ) : (
+                subgruposFiltradosOrdenados.map(sub => {
+                  const jaSelecionado = subgruposSelecionados.includes(sub.id);
+                  const grupo = grupos.find(g => g.id === sub.grupoId);
+                  return (
+                    <label key={sub.id} className={`subgrupo-checkbox ${jaSelecionado ? 'selecionado' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={jaSelecionado}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSubgruposSelecionados([...subgruposSelecionados, sub.id]);
+                          } else {
+                            setSubgruposSelecionados(subgruposSelecionados.filter((sId: string) => sId !== sub.id));
+                          }
+                        }}
+                      />
+                      <div className="subgrupo-item">
+                        <div 
+                          className="subgrupo-cor-indicator" 
+                          style={{ backgroundColor: sub.cor }}
+                        ></div>
+                        <div className="subgrupo-details">
+                          <span className="subgrupo-nome">{sub.nome}</span>
+                          <span className="subgrupo-total">{sub.totalContatos} contatos</span>
+                          {grupo && (
+                            <span className="subgrupo-grupo-info" style={{ color: grupo.cor }}>
+                              Grupo: {grupo.nome}
+                            </span>
+                          )}
+                        </div>
+                        <div className="checkbox-custom">
+                          <Icons.FiLayers size={16} />
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+            <div className="modal-actions">
+              <button onClick={aplicarSelecaoGrupos} className="btn-confirmar" disabled={subgrupos.length === 0}>
+                <Icons.FiLayers size={16} />
+                Confirmar Seleção ({subgruposSelecionados.length})
               </button>
             </div>
           </div>

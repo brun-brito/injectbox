@@ -2826,4 +2826,193 @@ export const campanhaStyle = `
           0% { transform: rotate(0deg);}
           100% { transform: rotate(360deg);}
         }
+
+        /* Modal Overlay */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(20, 20, 30, 0.85);
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Modal Content */
+.modal-content.modal-subgrupos {
+  background: #181824;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  width: 360px;
+  max-width: 95vw;
+  padding: 0;
+  color: #fff;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Modal Header */
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px 8px 24px;
+  border-bottom: 1px solid #23233a;
+  background: #23233a;
+}
+
+.modal-header h3 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin: 0;
+  color: #a78bfa;
+}
+
+.btn-fechar-modal {
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+.btn-fechar-modal:hover {
+  background: #29294d;
+}
+
+/* Busca */
+.busca-contatos-container {
+  padding: 12px 24px 0 24px;
+}
+.busca-contatos-wrapper {
+  display: flex;
+  align-items: center;
+  background: #23233a;
+  border-radius: 8px;
+  padding: 6px 12px;
+  margin-bottom: 8px;
+}
+.busca-contatos-icon {
+  color: #a78bfa;
+  margin-right: 8px;
+}
+.busca-contatos-input {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 1rem;
+  flex: 1;
+  outline: none;
+}
+
+/* Info Seleção */
+.controles-selecao {
+  padding: 0 24px;
+  margin-bottom: 8px;
+}
+.info-selecao {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.95rem;
+  color: #a1a1aa;
+  margin-bottom: 4px;
+}
+.acoes-selecao {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.checkbox-todos {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.checkbox-label {
+  color: #fff;
+}
+
+/* Lista de Subgrupos */
+.subgrupos-lista {
+  padding: 0 24px 0 24px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.subgrupo-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+.subgrupo-checkbox input[type="checkbox"] {
+  accent-color: #a78bfa;
+  width: 18px;
+  height: 18px;
+}
+.subgrupo-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.subgrupo-badge {
+  background: #a78bfa;
+  color: #fff;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+.subgrupo-details {
+  display: flex;
+  flex-direction: column;
+}
+.subgrupo-nome-preview,
+.subgrupo-nome {
+  font-weight: 500;
+  color: #fff;
+}
+.subgrupo-total-preview,
+.subgrupo-total {
+  font-size: 0.95rem;
+  color: #a1a1aa;
+}
+.checkbox-custom {
+  margin-left: auto;
+  color: #a78bfa;
+}
+
+/* Botão de confirmação */
+.modal-actions {
+  padding: 18px 24px;
+  background: #23233a;
+  border-top: 1px solid #23233a;
+  display: flex;
+  justify-content: flex-end;
+}
+.btn-confirmar {
+  background: #a78bfa;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 24px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-confirmar:disabled {
+  background: #6d28d9;
+  opacity: 0.7;
+  cursor: not-allowed;
+}
       `
